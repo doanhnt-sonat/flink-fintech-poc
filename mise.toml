@@ -8,4 +8,4 @@ run = "open http://localhost:8080"
 
 [tasks.flink-customer-analytics]
 description = "Build and Run Customer Analytics Flink Job"
-run = "cd flink-jobs && mvn clean package && cd .. && flink run flink-jobs/target/flink-jobs-1.0-SNAPSHOT.jar"
+run = "cd flink-jobs && mvn clean package exec:java -Dexec.mainClass=flinkfintechpoc.jobs.CustomerAnalyticsJob"

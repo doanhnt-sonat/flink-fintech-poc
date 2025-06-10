@@ -4,8 +4,6 @@ import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows;
-import org.apache.flink.streaming.api.windowing.time.Time;
 import org.apache.flink.table.api.DataTypes;
 import org.apache.flink.table.api.Schema;
 import org.apache.flink.table.api.Table;
@@ -24,7 +22,7 @@ public class CustomerAnalyticsJob {
     public static void main(String[] args) throws Exception {
         // Set up the streaming execution environment
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        
+
         // Create a Table environment
         StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env);
 
@@ -63,7 +61,11 @@ public class CustomerAnalyticsJob {
                     java.sql.Timestamp timestamp = (java.sql.Timestamp) row.getField(0);
                     Long count = (Long) row.getField(1);
                     return new Tuple2<>(timestamp.getTime(), count);
-                });
+                })
+                .returns(org.apache.flink.api.common.typeinfo.Types.TUPLE(
+                    org.apache.flink.api.common.typeinfo.Types.LONG,
+                    org.apache.flink.api.common.typeinfo.Types.LONG
+                ));
 
         // Print the results
         resultStream.print("Customers created per minute: ");
