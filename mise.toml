@@ -1,0 +1,7 @@
+[tasks.start-all]
+description = "Start Docker Compose"
+run = "docker compose -f docker/docker-compose.yml up -d"
+
+[tasks.kafka-ui]
+description = "Open Kafka UI"
+run = "open http://localhost:8080"
