@@ -93,6 +93,29 @@ services:
       KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: debezium
       KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://kafka-connect:8083
 
+  jobmanager:
+    image: flink:2.0.0-scala_2.12
+    ports:
+      - "8081:8081"
+    environment:
+      - JOB_MANAGER_RPC_ADDRESS=jobmanager
+    command: jobmanager
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8081" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  taskmanager:
+    image: flink:2.0.0-scala_2.12
+    depends_on:
+      jobmanager:
+        condition: service_healthy
+    environment:
+      - JOB_MANAGER_RPC_ADDRESS=jobmanager
+      - TASK_MANAGER_NUMBER_OF_TASK_SLOTS=2
+    command: taskmanager
+
 volumes:
   kafka-data:
   postgres-data:
