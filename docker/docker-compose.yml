@@ -94,7 +94,8 @@ services:
       KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://kafka-connect:8083
 
   jobmanager:
-    image: flink:2.0.0-scala_2.12
+    build:
+      context: ./flink
     ports:
       - "8081:8081"
     environment:
@@ -107,7 +108,8 @@ services:
       retries: 5
 
   taskmanager:
-    image: flink:2.0.0-scala_2.12
+    build:
+      context: ./flink
     depends_on:
       jobmanager:
         condition: service_healthy
