@@ -1,6 +1,7 @@
 (ns flinkfintechpoc.connectors
   (:require [babashka.http-client :as http]
-            [charred.api :as json]))
+            [charred.api :as json]
+            [clojure.pprint]))
 
 (defn register-postgres-customers-connector!
   [{:keys [connector-name
@@ -83,21 +84,9 @@
     (clojure.pprint/pprint response)
     response))
 
-(defn list-connectors
-  [project-id service-name]
-  (let [aiven-token "***"
-        url (str "https://api.aiven.io/v1/project/" project-id "/service/" service-name "/connectors")
-        response (http/get url {:headers {"Accept" "application/json"
-                                          "Authorization" (str "aivenv1 " aiven-token)}})]
-    (->> (json/read-json (:body response) :key-fn keyword)
-         :connectors
-         (filter (fn [connector]
-                   (= "io.debezium.connector.postgresql.PostgresConnector"
-                      (-> connector :plugin :class))))
-         (filter (fn [connector]
-                   #_(some? (-> connector :config :database.server.name))
-                   (nil? (-> connector :config :topic.prefix))))
-         (map :name))))
-
-(comment
-  (list-connectors "kroo-development" "kroo-development-kafka-connect"))
+(defn register-connectors!
+  []
+  (println "Registering customers-connector")
+  (register-postgres-customers-connector!
+    {:connector-name "customers-connector"})
+  (println "Registering customers-connector OK"))

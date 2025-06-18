@@ -26,22 +26,63 @@ public class CustomerAnalyticsJob {
         // Create a Table environment
         StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env);
 
-        // Define the Kafka source table for customers
-        tableEnv.createTable("customers", 
+        // Define the Kafka source table for customers using Debezium JSON format
+        tableEnv.createTable("customers_cdc", 
             TableDescriptor.forConnector("kafka")
                 .schema(Schema.newBuilder()
-                    .column("id", DataTypes.STRING())
-                    .column("name", DataTypes.STRING())
-                    .column("email", DataTypes.STRING())
-                    .column("created_at", DataTypes.TIMESTAMP(3))
-                    .watermark("created_at", "created_at - INTERVAL '5' SECOND")
+                    .column("before", DataTypes.ROW(
+                        DataTypes.FIELD("id", DataTypes.STRING()),
+                        DataTypes.FIELD("name", DataTypes.STRING()),
+                        DataTypes.FIELD("email", DataTypes.STRING()),
+                        DataTypes.FIELD("created_at", DataTypes.TIMESTAMP(3))
+                    ).nullable())
+                    .column("after", DataTypes.ROW(
+                        DataTypes.FIELD("id", DataTypes.STRING()),
+                        DataTypes.FIELD("name", DataTypes.STRING()),
+                        DataTypes.FIELD("email", DataTypes.STRING()),
+                        DataTypes.FIELD("created_at", DataTypes.TIMESTAMP(3))
+                    ).nullable())
+                    .column("source", DataTypes.ROW(
+                        DataTypes.FIELD("version", DataTypes.STRING()),
+                        DataTypes.FIELD("connector", DataTypes.STRING()),
+                        DataTypes.FIELD("name", DataTypes.STRING()),
+                        DataTypes.FIELD("ts_ms", DataTypes.BIGINT()),
+                        DataTypes.FIELD("snapshot", DataTypes.STRING().nullable()),
+                        DataTypes.FIELD("db", DataTypes.STRING()),
+                        DataTypes.FIELD("sequence", DataTypes.STRING().nullable()),
+                        DataTypes.FIELD("schema", DataTypes.STRING()),
+                        DataTypes.FIELD("table", DataTypes.STRING()),
+                        DataTypes.FIELD("txId", DataTypes.BIGINT().nullable()),
+                        DataTypes.FIELD("lsn", DataTypes.BIGINT().nullable()),
+                        DataTypes.FIELD("xmin", DataTypes.BIGINT().nullable())
+                    ))
+                    .column("op", DataTypes.STRING())
+                    .column("ts_ms", DataTypes.BIGINT())
+                    .column("transaction", DataTypes.ROW(
+                        DataTypes.FIELD("id", DataTypes.STRING()),
+                        DataTypes.FIELD("total_order", DataTypes.BIGINT()),
+                        DataTypes.FIELD("data_collection_order", DataTypes.BIGINT())
+                    ).nullable())
                     .build())
-                .option("topic", "customers")
+                .option("topic", "customers.public.customers")
                 .option("properties.bootstrap.servers", "kafka:29092")
                 .option("properties.group.id", "customer-analytics")
                 .option("scan.startup.mode", "latest-offset")
-                .option("format", "json")
+                .option("format", "debezium-json")
                 .build());
+
+        // Create a view that extracts the customer data from the Debezium envelope
+        tableEnv.executeSql(
+            "CREATE VIEW customers AS " +
+            "SELECT " +
+            "  after.id AS id, " +
+            "  after.name AS name, " +
+            "  after.email AS email, " +
+            "  after.created_at AS created_at " +
+            "FROM customers_cdc " +
+            "WHERE op = 'c' OR op = 'r' " +  // Only consider inserts (c) and reads (r)
+            "AND after IS NOT NULL"
+        );
 
         // SQL query to count customers per minute
         String sql = 
