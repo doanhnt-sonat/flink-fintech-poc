@@ -6,7 +6,7 @@ run = "docker compose -f docker/docker-compose.yml up -d"
 
 [tasks.flink-logs]
 description = "Start Docker Compose"
-run = "docker compose -f docker/docker-compose.yml logs taskmanager"
+run = "docker compose -f docker/docker-compose.yml logs taskmanager --follow"
 
 [tasks."open:kafka-ui"]
 description = "Open Kafka UI"

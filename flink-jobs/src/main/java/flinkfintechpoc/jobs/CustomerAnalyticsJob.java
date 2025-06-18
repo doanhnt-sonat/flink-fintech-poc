@@ -26,71 +26,33 @@ public class CustomerAnalyticsJob {
         // Create a Table environment
         StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env);
 
-        // Define the Kafka source table for customers using Debezium JSON format
-        tableEnv.createTable("customers_cdc", 
-            TableDescriptor.forConnector("kafka")
+        // Define a mock source table for customers using the datagen connector
+        tableEnv.createTable("mock_customers", 
+            TableDescriptor.forConnector("datagen")
                 .schema(Schema.newBuilder()
-                    .column("before", DataTypes.ROW(
-                        DataTypes.FIELD("id", DataTypes.STRING()),
-                        DataTypes.FIELD("name", DataTypes.STRING()),
-                        DataTypes.FIELD("email", DataTypes.STRING()),
-                        DataTypes.FIELD("created_at", DataTypes.TIMESTAMP(3))
-                    ).nullable())
-                    .column("after", DataTypes.ROW(
-                        DataTypes.FIELD("id", DataTypes.STRING()),
-                        DataTypes.FIELD("name", DataTypes.STRING()),
-                        DataTypes.FIELD("email", DataTypes.STRING()),
-                        DataTypes.FIELD("created_at", DataTypes.TIMESTAMP(3))
-                    ).nullable())
-                    .column("source", DataTypes.ROW(
-                        DataTypes.FIELD("version", DataTypes.STRING()),
-                        DataTypes.FIELD("connector", DataTypes.STRING()),
-                        DataTypes.FIELD("name", DataTypes.STRING()),
-                        DataTypes.FIELD("ts_ms", DataTypes.BIGINT()),
-                        DataTypes.FIELD("snapshot", DataTypes.STRING().nullable()),
-                        DataTypes.FIELD("db", DataTypes.STRING()),
-                        DataTypes.FIELD("sequence", DataTypes.STRING().nullable()),
-                        DataTypes.FIELD("schema", DataTypes.STRING()),
-                        DataTypes.FIELD("table", DataTypes.STRING()),
-                        DataTypes.FIELD("txId", DataTypes.BIGINT().nullable()),
-                        DataTypes.FIELD("lsn", DataTypes.BIGINT().nullable()),
-                        DataTypes.FIELD("xmin", DataTypes.BIGINT().nullable())
-                    ))
-                    .column("op", DataTypes.STRING())
-                    .column("ts_ms", DataTypes.BIGINT())
-                    .column("transaction", DataTypes.ROW(
-                        DataTypes.FIELD("id", DataTypes.STRING()),
-                        DataTypes.FIELD("total_order", DataTypes.BIGINT()),
-                        DataTypes.FIELD("data_collection_order", DataTypes.BIGINT())
-                    ).nullable())
+                    .column("id", DataTypes.STRING())
+                    .column("name", DataTypes.STRING())
+                    .column("email", DataTypes.STRING())
+                    .column("created_at", DataTypes.TIMESTAMP(3))
                     .build())
-                .option("topic", "customers.public.customers")
-                .option("properties.bootstrap.servers", "kafka:29092")
-                .option("properties.group.id", "customer-analytics")
-                .option("scan.startup.mode", "latest-offset")
-                .option("format", "debezium-json")
+                .option("rows-per-second", "5")
                 .build());
 
-        // Create a view that extracts the customer data from the Debezium envelope
+        // Create a view with a processing time attribute
         tableEnv.executeSql(
-            "CREATE VIEW customers AS " +
-            "SELECT " +
-            "  after.id AS id, " +
-            "  after.name AS name, " +
-            "  after.email AS email, " +
-            "  after.created_at AS created_at " +
-            "FROM customers_cdc " +
-            "WHERE op = 'c' OR op = 'r' " +  // Only consider inserts (c) and reads (r)
-            "AND after IS NOT NULL"
+            "CREATE VIEW customers_with_proctime AS " +
+            "SELECT *, PROCTIME() AS proc_time " +
+            "FROM mock_customers"
         );
 
-        // SQL query to count customers per minute
+        // SQL query to count customers per minute using processing time
         String sql = 
             "SELECT " +
-            "  TUMBLE_START(created_at, INTERVAL '1' MINUTE) AS window_start, " +
+            "  TUMBLE_START(proc_time, INTERVAL '1' MINUTE) AS window_start, " +
             "  COUNT(*) AS customer_count " +
-            "FROM customers " +
-            "GROUP BY TUMBLE(created_at, INTERVAL '1' MINUTE)";
+            "FROM customers_with_proctime " +
+            "GROUP BY TUMBLE(proc_time, INTERVAL '1' MINUTE)";
+
 
         // Execute the SQL query
         Table resultTable = tableEnv.sqlQuery(sql);
@@ -99,9 +61,11 @@ public class CustomerAnalyticsJob {
         DataStream<Tuple2<Long, Long>> resultStream = 
             tableEnv.toDataStream(resultTable)
                 .map(row -> {
-                    java.sql.Timestamp timestamp = (java.sql.Timestamp) row.getField(0);
+                    java.time.LocalDateTime localDateTime = (java.time.LocalDateTime) row.getField(0);
                     Long count = (Long) row.getField(1);
-                    return new Tuple2<>(timestamp.getTime(), count);
+                    // Convert LocalDateTime to milliseconds since epoch
+                    long timestamp = localDateTime.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
+                    return new Tuple2<>(timestamp, count);
                 })
                 .returns(org.apache.flink.api.common.typeinfo.Types.TUPLE(
                     org.apache.flink.api.common.typeinfo.Types.LONG,
