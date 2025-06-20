@@ -31,7 +31,7 @@ description = "Build and Run Word Count Flink Job"
 run = "flink run -c flinkfintechpoc.jobs.WordCountJob flink-jobs/target/flink-jobs-1.0-SNAPSHOT.jar"
 
 [tasks."flink:run:customer-debezium"]
-depends = ["flink:build"]
+depends = ["flink:jobs:cancel", "flink:build"]
 description = "Build and Run Word Count Flink Job"
 run = "flink run -c flinkfintechpoc.jobs.CustomerDebeziumJob flink-jobs/target/flink-jobs-1.0-SNAPSHOT.jar"
 
