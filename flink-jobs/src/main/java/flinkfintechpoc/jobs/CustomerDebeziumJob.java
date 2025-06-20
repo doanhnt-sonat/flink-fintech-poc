@@ -18,10 +18,7 @@ import org.apache.flink.types.Row;
 
 import java.time.Duration;
 
-/**
- * Flink job that reads data from Kafka topic (customers.public.customers) with Debezium JSON format,
- * builds a customers table, and performs an aggregation to count the number of users created in 30-second windows.
- */
+
 public class CustomerDebeziumJob {
 
     public static void main(String[] args) throws Exception {
@@ -36,9 +33,8 @@ public class CustomerDebeziumJob {
               id INT,
               name STRING,
               email STRING,
-              created_at STRING,
-              created_ts AS TO_TIMESTAMP(SUBSTR(created_at, 1, 23) || 'Z'),
-              updated_at STRING,
+              created_at TIMESTAMP_LTZ,
+              updated_at TIMESTAMP_LTZ,
               PRIMARY KEY (id) NOT ENFORCED
             ) WITH (
               'connector' = 'kafka',
@@ -47,27 +43,32 @@ public class CustomerDebeziumJob {
               'properties.group.id' = 'testGroup1',
               'scan.startup.mode' = 'earliest-offset',
               'format' = 'debezium-json',
+              'debezium-json.timestamp-format.standard' = 'ISO-8601',
               'debezium-json.ignore-parse-errors' = 'true',
               'debezium-json.schema-include' = 'false'
             )
             """
         );
 
-      tableEnv.executeSql(
-          """
-          CREATE TABLE customers_sink (
-            id INT,
-            name STRING,
-            email STRING,
-            created_at STRING,
-            created_ts TIMESTAMP(3),
-            updated_at STRING,
-            PRIMARY KEY (id) NOT ENFORCED
-          ) WITH (
-            'connector' = 'print'
-          )
-          """
-      );
+//      tableEnv.executeSql(
+//          """
+//          CREATE TABLE customers_sink (
+//            id INT,
+//            name STRING,
+//            email STRING,
+//            created_at STRING,
+//            created_ts AS TO_TIMESTAMP(created_at),
+//            updated_at STRING,
+//            PRIMARY KEY (id) NOT ENFORCED
+//          ) WITH (
+//            'connector' = 'print'
+//          )
+//          """
+//      );
+//
+//      tableEnv.executeSql(
+//          "INSERT INTO customers_sink SELECT * FROM customers_cdc"
+//      );
 
       // Execute the SQL statement and get the result
       Table resultTable = tableEnv.sqlQuery("SELECT * FROM customers_cdc");
@@ -77,11 +78,6 @@ public class CustomerDebeziumJob {
 
       // Print the results
       resultStream.print("Customer Data: ");
-
-      // Also execute the insert statement
-      tableEnv.executeSql(
-          "INSERT INTO customers_sink SELECT * FROM customers_cdc"
-      );
 
         // Create a view that extracts the relevant fields from the Debezium format
 //        tableEnv.executeSql(

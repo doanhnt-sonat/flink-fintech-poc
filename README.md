@@ -54,6 +54,20 @@ The project includes a Docker Compose setup with:
 To start the infrastructure:
 
 ```bash
+# Using Docker Compose directly
 cd docker
 docker-compose up -d
+
+# Or using mise task
+mise run docker:start:all
 ```
+
+### Connecting to PostgreSQL
+
+You can connect to the PostgreSQL database using the following mise task:
+
+```bash
+mise run postgres:connect
+```
+
+This will open a psql session connected to the PostgreSQL instance running in Docker.

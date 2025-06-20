@@ -37,13 +37,12 @@ run = "flink run -c flinkfintechpoc.jobs.CustomerDebeziumJob flink-jobs/target/f
 
 [tasks."flink:jobs:cancel"]
 description = "Cancel all running Flink jobs"
-run = '''
-for job in $(flink list -r | awk '/Running/ {print $4}'); do
-  echo "Cancelling job: $job"
-  flink cancel "$job"
-done
-'''
+run = "flink list -r | grep -Eo '[0-9a-f]{32}' | xargs -n 1 flink cancel"
 
 [tasks."connectors:register"]
 description = "Register Kafka Connectors"
 run = "cd app && lein run -m flinkfintechpoc.connectors/register-connectors!"
+
+[tasks."postgres:connect"]
+description = "Connect to PostgreSQL using psql"
+run = "docker exec -it $(docker compose -f docker/docker-compose.yml ps -q postgres) psql -U postgres -d outbox_demo"
