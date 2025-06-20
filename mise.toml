@@ -35,6 +35,15 @@ depends = ["flink:build"]
 description = "Build and Run Word Count Flink Job"
 run = "flink run -c flinkfintechpoc.jobs.CustomerDebeziumJob flink-jobs/target/flink-jobs-1.0-SNAPSHOT.jar"
 
+[tasks."flink:jobs:cancel"]
+description = "Cancel all running Flink jobs"
+run = '''
+for job in $(flink list -r | awk '/Running/ {print $4}'); do
+  echo "Cancelling job: $job"
+  flink cancel "$job"
+done
+'''
+
 [tasks."connectors:register"]
 description = "Register Kafka Connectors"
 run = "cd app && lein run -m flinkfintechpoc.connectors/register-connectors!"

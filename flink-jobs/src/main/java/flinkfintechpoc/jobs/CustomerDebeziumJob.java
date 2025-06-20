@@ -25,40 +25,10 @@ import java.time.Duration;
 public class CustomerDebeziumJob {
 
     public static void main(String[] args) throws Exception {
-        // Set up the streaming execution environment
-//        final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-//
-//        // Create a Table environment
-//        StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env);
-
 
       StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-      EnvironmentSettings settings = EnvironmentSettings.newInstance()
-          .inStreamingMode()
-          .build();
 
       StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env);
-
-        // Create a table from the Kafka topic using SQL DDL
-        // This assumes Debezium CDC format with JSON encoding
-//        tableEnv.executeSql(
-//            "CREATE TABLE customers (" +
-//            "  id STRING," +
-//            "  after ROW<id STRING, name STRING, email STRING, created_at TIMESTAMP(3)>," +
-//            "  op STRING," +
-//            "  ts_ms BIGINT," +
-//            "  proc_time AS PROCTIME()" +  // Add processing time attribute
-//            ") WITH (" +
-//            "  'connector' = 'kafka'," +
-//            "  'topic' = 'customers.public.customers'," +
-//            "  'properties.bootstrap.servers' = 'kafka:29092'," +
-//            "  'properties.group.id' = 'customer-debezium-consumer'," +
-//            "  'scan.startup.mode' = 'earliest-offset'," +
-//            "  'format' = 'json'," +
-//            "  'json.fail-on-missing-field' = 'false'," +
-//            "  'json.ignore-parse-errors' = 'true'" +
-//            ")"
-//        );
 
         tableEnv.executeSql(
             """
@@ -67,6 +37,7 @@ public class CustomerDebeziumJob {
               name STRING,
               email STRING,
               created_at STRING,
+              created_ts AS TO_TIMESTAMP(SUBSTR(created_at, 1, 23) || 'Z'),
               updated_at STRING,
               PRIMARY KEY (id) NOT ENFORCED
             ) WITH (
@@ -89,6 +60,7 @@ public class CustomerDebeziumJob {
             name STRING,
             email STRING,
             created_at STRING,
+            created_ts TIMESTAMP(3),
             updated_at STRING,
             PRIMARY KEY (id) NOT ENFORCED
           ) WITH (
