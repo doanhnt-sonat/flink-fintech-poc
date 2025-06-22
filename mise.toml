@@ -4,6 +4,9 @@
 description = "Start all required Docker containers (Kafka, Flink, Postgres, Kafka UI)"
 run = "docker compose -f docker/docker-compose.yml up -d"
 
+[tasks."docker:ps"]
+run = "docker compose -f docker/docker-compose.yml ps"
+
 [tasks."flink:logs"]
 description = "Display Flink TaskManager logs in follow mode"
 run = "docker compose -f docker/docker-compose.yml logs taskmanager --follow"
@@ -42,6 +45,9 @@ run = "flink list -r | grep -Eo '[0-9a-f]{32}' | xargs -n 1 flink cancel"
 [tasks."connectors:register"]
 description = "Register Debezium Kafka Connectors for CDC data capture"
 run = "cd app && lein run -m flinkfintechpoc.connectors/register-connectors!"
+
+[tasks."simulate"]
+run = "cd app && lein run"
 
 [tasks."postgres:connect"]
 description = "Connect to PostgreSQL database (outbox_demo) using interactive psql client"
