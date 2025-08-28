@@ -1,9 +1,8 @@
 # Use the official Flink image with Python support
 FROM flink:2.0.0
-RUN mkdir -p /opt/flink/usrlib
-
 # Download Flink SQL Kafka connector (includes all required dependencies)
-RUN wget -P /opt/flink/usrlib https://repo.maven.apache.org/maven2/org/apache/flink/flink-sql-connector-kafka/4.0.0-2.0/flink-sql-connector-kafka-4.0.0-2.0.jar
+# Put in /opt/flink/lib to ensure it's loaded automatically
+RUN wget -P /opt/flink/lib https://repo.maven.apache.org/maven2/org/apache/flink/flink-sql-connector-kafka/4.0.0-2.0/flink-sql-connector-kafka-4.0.0-2.0.jar
 # Switch to root user to install packages
 USER root
 
