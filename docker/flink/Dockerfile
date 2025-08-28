@@ -1,7 +1,8 @@
-FROM flink:1.18.1-scala_2.12-java11
-
+# Use the official Flink image with Python support
+FROM flink:2.0.0
 RUN mkdir -p /opt/flink/usrlib
-RUN wget -P /opt/flink/usrlib https://repo.maven.apache.org/maven2/org/apache/flink/flink-connector-kafka/3.2.0-1.18/flink-connector-kafka-3.2.0-1.18.jar
+RUN wget -P /opt/flink/usrlib https://repo.maven.apache.org/maven2/org/apache/flink/flink-connector-kafka/4.0.0-2.0/flink-connector-kafka-4.0.0-2.0.jar
+# Switch to root user to install packages
 USER root
 
 # Install Python and pip
