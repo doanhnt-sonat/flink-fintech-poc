@@ -33,7 +33,7 @@ run = "docker compose -f docker/docker-compose.yml exec -it jobmanager flink run
 
 [tasks."run:customer-debezium"]
 description = "Run Python Customer Debezium job that processes CDC events from PostgreSQL via Kafka"
-run = "docker compose -f docker/docker-compose.yml exec -it jobmanager flink run -py /opt/flink/python-jobs/run_job.py customer_debezium"
+run = "docker compose -f docker/docker-compose.yml exec -it jobmanager flink run --jarfile /opt/flink/usrlib/flink-sql-connector-kafka-4.0.0-2.0.jar -py /opt/flink/python-jobs/run_job.py customer_debezium"
 
 # Job Management
 [tasks."jobs:list"]

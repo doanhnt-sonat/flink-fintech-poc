@@ -19,6 +19,9 @@ def main():
     # Create a Table environment
     table_env = StreamTableEnvironment.create(env)
     
+    # Add Kafka connector JAR to table environment
+    table_env.get_config().set("pipeline.jars", "file:///opt/flink/usrlib/flink-sql-connector-kafka-4.0.0-2.0.jar")
+    
     # Create the CDC source table for customers
     table_env.execute_sql("""
         CREATE TABLE customers_cdc (
