@@ -32,5 +32,6 @@
                  [org.slf4j/slf4j-simple "2.1.0-alpha1"]]
   :main ^:skip-aot flinkfintechpoc.app
   :target-path "target/%s"
+  :jvm-opts ["-Duser.timezone=Asia/Ho_Chi_Minh"]
   :profiles {:uberjar {:aot :all
-                       :jvm-opts ["-Dclojure.compiler.direct-linking=true"]}})
+                     :jvm-opts ["-Dclojure.compiler.direct-linking=true"]}})

@@ -1,3 +1,4 @@
+name: test python
 services:
   kafka:
     image: confluentinc/cp-kafka:7.5.0
@@ -93,13 +94,17 @@ services:
       KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: debezium
       KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://kafka-connect:8083
 
+  # Python Flink JobManager
   jobmanager:
     build:
-      context: ./flink
+      context: ..
+      dockerfile: ./docker/flink/Dockerfile
     ports:
       - "8081:8081"
     environment:
       - JOB_MANAGER_RPC_ADDRESS=jobmanager
+    volumes:
+      - ../flink-jobs-python:/opt/flink/python-jobs
     command: jobmanager
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8081" ]
@@ -107,15 +112,19 @@ services:
       timeout: 5s
       retries: 5
 
+  # Python Flink TaskManager
   taskmanager:
     build:
-      context: ./flink
+      context: ..
+      dockerfile: ./docker/flink/Dockerfile
     depends_on:
       jobmanager:
         condition: service_healthy
     environment:
       - JOB_MANAGER_RPC_ADDRESS=jobmanager
       - TASK_MANAGER_NUMBER_OF_TASK_SLOTS=2
+    volumes:
+      - ../flink-jobs-python:/opt/flink/python-jobs
     command: taskmanager
 
 volumes:
