@@ -1,16 +1,27 @@
 # Project dependencies: java, maven, flink, lein
 
 [tasks."docker:start:all"]
-description = "Start all required Docker containers (Kafka, Flink, Postgres, Kafka UI)"
+description = "Start all required Docker containers (Kafka, Flink, Postgres, Flink, Kafka UI)"
 run = "docker compose -f docker/docker-compose.yml up -d"
 
 [tasks."docker:ps"]
 run = "docker compose -f docker/docker-compose.yml ps"
 
+[tasks."docker:shutdown"]
+description = "Shutdown and remove all Docker containers defined in docker-compose"
+run = "docker compose -f docker/docker-compose.yml down"
+
+[tasks."docker:prune:volumes"]
+description = "Remove all unused Docker volumes"
+run = "docker volume prune -f"
+
 [tasks."flink:logs"]
 description = "Display Flink TaskManager logs in follow mode"
 run = "docker compose -f docker/docker-compose.yml logs taskmanager --follow"
 
+[tasks."docker:build:flink"]
+description = "Build image container for Flink JobManager and TaskManager"
+run = "docker compose -f docker/docker-compose.yml build jobmanager taskmanager"
 
 [tasks."open:kafka-ui"]
 description = "Open Kafka UI web interface in browser (port 8080)"
@@ -20,16 +31,9 @@ run = "start http://localhost:8080"
 description = "Open Flink Dashboard web interface in browser (port 8081)"
 run = "start http://localhost:8081"
 
-
-
 [tasks."flink:build"]
 description = "Build Flink Jobs JAR package using Maven"
 run = "cd flink-jobs && mvn clean package"
-
-[tasks."python:setup"]
-description = "Setup Python environment for Flink jobs"
-run = "cd flink-jobs-python && python setup.py"
-
 
 [tasks."flink:run:customer-analytics"]
 depends = ["flink:build"]

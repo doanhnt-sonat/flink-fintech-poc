@@ -42,7 +42,7 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: outbox_demo
+      POSTGRES_DB: fintech_demo
       # Set wal_level to logical to support logical decoding for Debezium
 #      POSTGRES_INITDB_ARGS: "--wal_level=logical"
     command: ["postgres", "-c", "wal_level=logical"]
@@ -121,6 +121,41 @@ services:
     volumes:
       - ../flink-jobs/target:/opt/flink/jobs
     command: taskmanager
+
+  # Python Fintech Data Producer
+  fintech-python-app:
+    build:
+      context: ../app-python
+      dockerfile: Dockerfile
+    hostname: fintech-python-app
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      kafka-connect:
+        condition: service_healthy
+    environment:
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_NAME: fintech_demo
+      DATABASE_USER: postgres
+      DATABASE_PASSWORD: postgres
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_CONNECT_URL: http://kafka-connect:8083
+      PRODUCTION_RATE: 5
+      NUM_CUSTOMERS: 50
+      LOG_LEVEL: INFO
+    volumes:
+      - ../app-python:/app
+    working_dir: /app
+    command: ["python", "main.py", "run-all", "--rate", "5", "--num-customers", "50"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import psycopg2; psycopg2.connect('postgresql://postgres:postgres@postgres:5432/fintech_demo').close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
 
 
 volumes:

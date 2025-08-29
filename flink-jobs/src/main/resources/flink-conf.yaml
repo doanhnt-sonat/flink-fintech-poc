@@ -1,0 +1,235 @@
+# Flink Configuration for Fintech Analytics Job
+
+#==============================================================================
+# Common
+#==============================================================================
+
+# The class that provides the default filesystem for the cluster
+fs.default-scheme: file
+
+# The default parallelism for jobs
+parallelism.default: 4
+
+#==============================================================================
+# JobManager
+#==============================================================================
+
+# The RPC port where the JobManager accepts job submissions and monitoring requests
+jobmanager.rpc.port: 6123
+
+# The heap size for the JobManager JVM
+jobmanager.memory.process.size: 1600m
+
+# The heap size for the JobManager JVM
+jobmanager.memory.flink.size: 1280m
+
+#==============================================================================
+# TaskManager
+#==============================================================================
+
+# The RPC port where the TaskManager accepts RPC connections from the JobManager
+taskmanager.rpc.port: 6122
+
+# The heap size for the TaskManager JVM
+taskmanager.memory.process.size: 1728m
+
+# The heap size for the TaskManager JVM
+taskmanager.memory.flink.size: 1280m
+
+# The number of task slots that each TaskManager offers
+taskmanager.numberOfTaskSlots: 2
+
+#==============================================================================
+# State Backend
+#==============================================================================
+
+# The state backend to be used to store state
+state.backend: rocksdb
+
+# The checkpoint storage implementation to be used
+state.checkpoint-storage: file
+
+# The directory where checkpoints are stored
+state.checkpoints.dir: file:///tmp/flink-checkpoints
+
+# The directory where savepoints are stored
+state.savepoints.dir: file:///tmp/flink-savepoints
+
+#==============================================================================
+# Checkpointing
+#==============================================================================
+
+# The interval in milliseconds between two consecutive checkpoints
+execution.checkpointing.interval: 10000
+
+# The maximum time that a checkpoint may take before being discarded
+execution.checkpointing.timeout: 300000
+
+# The minimum pause between checkpointing attempts
+execution.checkpointing.min-pause: 2000
+
+# The maximum number of checkpoint attempts
+execution.checkpointing.max-concurrent-checkpoints: 1
+
+# The number of completed checkpoints to retain
+state.checkpoints.num-retained: 10
+
+#==============================================================================
+# Restart Strategy
+#==============================================================================
+
+# The restart strategy to be used for recovery
+restart-strategy: fixed-delay
+
+# The number of restart attempts
+restart-strategy.fixed-delay.attempts: 3
+
+# The delay between restart attempts
+restart-strategy.fixed-delay.delay: 10s
+
+#==============================================================================
+# High Availability
+#==============================================================================
+
+# The high availability mode
+high-availability: zookeeper
+
+# The ZooKeeper quorum to use
+high-availability.zookeeper.quorum: localhost:2181
+
+# The root path under which Flink stores its entries in ZooKeeper
+high-availability.zookeeper.path.root: /flink
+
+# The path under which Flink stores its cluster ID in ZooKeeper
+high-availability.cluster-id: /default
+
+#==============================================================================
+# Security
+#==============================================================================
+
+# The security context in which job is executed
+security.kerberos.login.use-ticket-cache: false
+
+#==============================================================================
+# Web UI
+#==============================================================================
+
+# The port for the runtime monitor web-frontend server
+rest.port: 8081
+
+# The address to which the REST client will connect to
+rest.bind-address: 0.0.0.0
+
+#==============================================================================
+# Logging
+#==============================================================================
+
+# The severity level for the root logger
+rootLogger.level: INFO
+
+# The appender for the root logger
+rootLogger.appenderRef.console.ref: ConsoleAppender
+
+# The appender for the console
+appender.console.name: ConsoleAppender
+appender.console.type: CONSOLE
+appender.console.layout.type: PatternLayout
+appender.console.layout.pattern: %d{HH:mm:ss,SSS} %-5p %-60c %x - %m%n
+
+#==============================================================================
+# Metrics
+#==============================================================================
+
+# The reporter for metrics
+metrics.reporter.prom.name: prom
+metrics.reporter.prom.type: prometheus
+metrics.reporter.prom.port: 9249
+
+#==============================================================================
+# Network
+#==============================================================================
+
+# The number of network buffers
+taskmanager.memory.network.fraction: 0.1
+taskmanager.memory.network.min: 64mb
+taskmanager.memory.network.max: 1gb
+
+#==============================================================================
+# Memory
+#==============================================================================
+
+# The fraction of the free memory to use for managed memory
+taskmanager.memory.managed.fraction: 0.4
+
+# The size of the managed memory
+taskmanager.memory.managed.size: 128mb
+
+# The fraction of the free memory to use for JVM metaspace
+taskmanager.memory.jvm-metaspace.size: 256mb
+
+# The fraction of the free memory to use for JVM overhead
+taskmanager.memory.jvm-overhead.fraction: 0.1
+
+#==============================================================================
+# Performance
+#==============================================================================
+
+# The number of network buffers
+taskmanager.memory.network.numberOfBuffers: 2048
+
+# The buffer timeout
+taskmanager.memory.network.buffers-per-channel: 2
+
+# The number of floating buffers
+taskmanager.memory.network.floating-buffers-per-gate: 8
+
+#==============================================================================
+# Kafka Connector
+#==============================================================================
+
+# The Kafka consumer configuration
+pulsar.source.ignoreStartupErrors: true
+
+#==============================================================================
+# Custom Configuration for Fintech Analytics
+#==============================================================================
+
+# Custom configuration for fraud detection
+fraud.detection.confidence.threshold: 0.5
+fraud.detection.amount.threshold.multiplier: 3.0
+fraud.detection.frequency.threshold: 10
+fraud.detection.time.window.minutes: 5
+
+# Custom configuration for risk analytics
+risk.analytics.window.minutes: 10
+risk.analytics.high.risk.threshold: 80.0
+risk.analytics.critical.risk.threshold: 90.0
+
+# Custom configuration for customer behavior
+customer.behavior.window.minutes: 15
+customer.behavior.segment.thresholds.premium: 10000
+customer.behavior.segment.thresholds.active: 5000
+
+# Custom configuration for geographic analysis
+geographic.analysis.window.minutes: 5
+geographic.analysis.suspicious.countries: []
+
+# Custom configuration for merchant analysis
+merchant.analysis.window.minutes: 10
+merchant.analysis.suspicious.business.types: []
+
+# Custom configuration for time pattern analysis
+time.pattern.window.hours: 1
+time.pattern.business.hours.start: 9
+time.pattern.business.hours.end: 17
+
+# Custom configuration for compliance monitoring
+compliance.monitoring.window.minutes: 30
+compliance.monitoring.suspicious.ratio.threshold: 0.3
+compliance.monitoring.high.risk.threshold: 80.0
+
+# Custom configuration for anomaly detection
+anomaly.detection.confidence.threshold: 0.5
+anomaly.detection.amount.threshold.multiplier: 5.0
+anomaly.detection.frequency.threshold: 20
+anomaly.detection.time.window.minutes: 10
