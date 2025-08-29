@@ -29,7 +29,7 @@ def main():
             name STRING,
             email STRING,
             created_at TIMESTAMP_LTZ(3),
-            updated_at TIMESTAMP_LTZ,
+            updated_at TIMESTAMP_LTZ(3),
             WATERMARK FOR created_at AS created_at - INTERVAL '5' SECOND,
             PRIMARY KEY (id) NOT ENFORCED
         ) WITH (
@@ -64,7 +64,10 @@ def main():
     
     print("Starting Customer Debezium Job...")
     print("Customers created per 30 seconds:")
-    result.execute().print()
+    
+    # Convert to DataStream for execution with env.execute()
+    result_stream = table_env.to_changelog_stream(result)
+    result_stream.print("Customer Analytics")
     
     # Execute the job
     env.execute("Python Customer Debezium Job")
