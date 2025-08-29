@@ -11,36 +11,50 @@ run = "docker compose -f docker/docker-compose.yml ps"
 description = "Display Flink TaskManager logs in follow mode"
 run = "docker compose -f docker/docker-compose.yml logs taskmanager --follow"
 
+
 [tasks."open:kafka-ui"]
 description = "Open Kafka UI web interface in browser (port 8080)"
-run = "open http://localhost:8080"
+run = "start http://localhost:8080"
 
 [tasks."open:flink-ui"]
 description = "Open Flink Dashboard web interface in browser (port 8081)"
-run = "open http://localhost:8081"
+run = "start http://localhost:8081"
+
+
 
 [tasks."flink:build"]
 description = "Build Flink Jobs JAR package using Maven"
 run = "cd flink-jobs && mvn clean package"
 
+[tasks."python:setup"]
+description = "Setup Python environment for Flink jobs"
+run = "cd flink-jobs-python && python setup.py"
+
+
 [tasks."flink:run:customer-analytics"]
 depends = ["flink:build"]
 description = "Run Customer Analytics job that counts customers created per minute"
-run = "flink run -c flinkfintechpoc.jobs.CustomerAnalyticsJob flink-jobs/target/flink-jobs-1.0-SNAPSHOT.jar"
+run = "docker compose -f docker/docker-compose.yml exec -it jobmanager flink run -c flinkfintechpoc.jobs.CustomerAnalyticsJob /opt/flink/jobs/flink-jobs-1.0-SNAPSHOT.jar"
 
 [tasks."flink:run:word-count"]
 depends = ["flink:build"]
 description = "Run Word Count job that processes static text data and counts word occurrences"
-run = "flink run -c flinkfintechpoc.jobs.WordCountJob flink-jobs/target/flink-jobs-1.0-SNAPSHOT.jar"
+run = "docker compose -f docker/docker-compose.yml exec -it jobmanager flink run -c flinkfintechpoc.jobs.WordCountJob /opt/flink/jobs/flink-jobs-1.0-SNAPSHOT.jar"
 
 [tasks."flink:run:customer-debezium"]
-depends = ["flink:jobs:cancel", "flink:build"]
+depends = ["flink:build"]
 description = "Run Customer Debezium job that processes CDC events from PostgreSQL via Kafka"
-run = "flink run -c flinkfintechpoc.jobs.CustomerDebeziumJob flink-jobs/target/flink-jobs-1.0-SNAPSHOT.jar"
+run = "docker compose -f docker/docker-compose.yml exec -it jobmanager flink run -c flinkfintechpoc.jobs.CustomerDebeziumJob /opt/flink/jobs/flink-jobs-1.0-SNAPSHOT.jar"
 
 [tasks."flink:jobs:cancel"]
-description = "Cancel all currently running Flink jobs"
-run = "flink list -r | grep -Eo '[0-9a-f]{32}' | xargs -n 1 flink cancel"
+description = "Cancel all currently running Java Flink jobs"
+run = '''
+docker compose -f docker/docker-compose.yml exec jobmanager sh -c "flink list -r | grep -Eo '[0-9a-f]{32}' | xargs -r -n1 flink cancel"
+'''
+
+[tasks."flink:jobs:list"]
+description = "List all currently running Java Flink jobs"
+run = "docker compose -f docker/docker-compose.yml exec jobmanager flink list"
 
 [tasks."connectors:register"]
 description = "Register Debezium Kafka Connectors for CDC data capture"
@@ -51,4 +65,4 @@ run = "cd app && lein run"
 
 [tasks."postgres:connect"]
 description = "Connect to PostgreSQL database (outbox_demo) using interactive psql client"
-run = "docker exec -it $(docker compose -f docker/docker-compose.yml ps -q postgres) psql -U postgres -d outbox_demo"
+run = "docker compose -f docker/docker-compose.yml exec -it postgres psql -U postgres -d outbox_demo"

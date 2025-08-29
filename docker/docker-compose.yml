@@ -100,6 +100,8 @@ services:
       - "8081:8081"
     environment:
       - JOB_MANAGER_RPC_ADDRESS=jobmanager
+    volumes:
+      - ../flink-jobs/target:/opt/flink/jobs
     command: jobmanager
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8081" ]
@@ -116,7 +118,10 @@ services:
     environment:
       - JOB_MANAGER_RPC_ADDRESS=jobmanager
       - TASK_MANAGER_NUMBER_OF_TASK_SLOTS=2
+    volumes:
+      - ../flink-jobs/target:/opt/flink/jobs
     command: taskmanager
+
 
 volumes:
   kafka-data:
