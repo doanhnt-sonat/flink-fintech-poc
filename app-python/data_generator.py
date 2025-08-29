@@ -12,10 +12,10 @@ from faker import Faker
 import numpy as np
 
 from models import (
-    Customer, Account, Transaction, Merchant, FraudAlert, 
-    ComplianceEvent, AccountBalance, CustomerSession, MarketData,
+    Customer, Account, Transaction, Merchant, 
+    CustomerSession,
     TransactionType, TransactionStatus, AccountType, CustomerTier,
-    RiskLevel, Address, OutboxEvent, EventType, StreamEvent
+    RiskLevel, Address, OutboxEvent, EventType
 )
 
 
@@ -35,11 +35,16 @@ class AdvancedDataGenerator:
             random.seed(seed)
             np.random.seed(seed)
         
+        # Base time for consistent data generation
+        # Start with a fixed date but allow it to progress with each run
+        self._initial_base_time = datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc)  # Initial: Noon on Jan 15, 2025
+        self._base_time_progression = 0  # Track how many days to advance
+        self.base_time = self._initial_base_time + timedelta(days=self._base_time_progression)
+        
         # Pre-generated data for consistency
         self.merchants: List[Merchant] = []
         self.customers: List[Customer] = []
         self.accounts: List[Account] = []
-        self.market_symbols = ['AAPL', 'GOOGL', 'MSFT', 'AMZN', 'TSLA', 'NVDA', 'META', 'BRK.A', 'V', 'JNJ']
         
         # Behavioral patterns
         self.transaction_patterns = {
@@ -51,6 +56,22 @@ class AdvancedDataGenerator:
         
         # Initialize base data
         self._generate_merchants(50)
+    
+    def advance_base_time(self, days: int = 1):
+        """Advance the base time by specified number of days"""
+        self._base_time_progression += days
+        self.base_time = self._initial_base_time + timedelta(days=self._base_time_progression)
+        print(f"🕐 Base time advanced by {days} day(s). New base time: {self.base_time}")
+    
+    def reset_base_time(self):
+        """Reset base time to initial value"""
+        self._base_time_progression = 0
+        self.base_time = self._initial_base_time
+        print(f"🔄 Base time reset to initial: {self.base_time}")
+    
+    def get_current_base_time(self) -> datetime:
+        """Get current base time"""
+        return self.base_time
     
     def _generate_merchants(self, count: int):
         """Generate a pool of merchants for transactions"""
@@ -155,29 +176,12 @@ class AdvancedDataGenerator:
                     weights=[50, 25, 20, 5]
                 )[0]
         
-        # Balance based on customer tier and account type
-        balance_ranges = {
-            CustomerTier.BASIC: (100, 5000),
-            CustomerTier.PREMIUM: (1000, 50000),
-            CustomerTier.VIP: (10000, 500000),
-            CustomerTier.ENTERPRISE: (50000, 5000000)
-        }
-        
-        min_bal, max_bal = balance_ranges[customer.tier]
-        if account_type == AccountType.CREDIT:
-            balance = Decimal(str(random.uniform(-max_bal * 0.3, 0)))  # Credit accounts have negative balance
-            credit_limit = Decimal(str(random.uniform(1000, max_bal)))
-        else:
-            balance = Decimal(str(random.uniform(min_bal, max_bal)))
-            credit_limit = None
+
         
         account = Account(
             customer_id=customer.id,
             account_number=f"ACC-{random.randint(100000000, 999999999)}",
             account_type=account_type,
-            balance=balance,
-            available_balance=balance * Decimal('0.95'),  # 95% available
-            credit_limit=credit_limit,
             interest_rate=Decimal(str(random.uniform(0.01, 0.05))) if account_type == AccountType.SAVINGS else None,
             overdraft_protection=random.choice([True, False]),
             minimum_balance=Decimal('100') if account_type == AccountType.SAVINGS else Decimal('0'),
@@ -190,17 +194,33 @@ class AdvancedDataGenerator:
         return account
     
     def generate_transaction(self, customer: Customer, account: Account, 
-                           transaction_type: Optional[TransactionType] = None) -> Transaction:
+                           transaction_type: Optional[TransactionType] = None,
+                           session_start: Optional[datetime] = None,
+                           session_end: Optional[datetime] = None) -> Transaction:
         """Generate a realistic transaction with behavioral patterns"""
         
         if not transaction_type:
-            # Transaction type distribution based on account type and time
+            # Transaction type distribution based on account type
             if account.account_type == AccountType.CREDIT:
+                # Credit accounts cannot have deposits, only payments and charges
                 transaction_type = random.choices(
-                    [TransactionType.CARD_PAYMENT, TransactionType.CASH_ADVANCE, TransactionType.FEE_CHARGE],
+                    [TransactionType.CARD_PAYMENT, TransactionType.ATM_WITHDRAWAL, TransactionType.FEE_CHARGE],
                     weights=[80, 15, 5]
                 )[0]
+            elif account.account_type == AccountType.SAVINGS:
+                # Savings accounts are primarily for deposits and transfers
+                transaction_type = random.choices([
+                    TransactionType.DEPOSIT, TransactionType.ACH_TRANSFER, 
+                    TransactionType.INTERNAL_TRANSFER, TransactionType.INTEREST_PAYMENT
+                ], weights=[40, 30, 20, 10])[0]
+            elif account.account_type == AccountType.INVESTMENT:
+                # Investment accounts for trading and dividends
+                transaction_type = random.choices([
+                    TransactionType.DEPOSIT, TransactionType.ACH_TRANSFER, 
+                    TransactionType.INTEREST_PAYMENT, TransactionType.INTERNAL_TRANSFER
+                ], weights=[30, 25, 25, 20])[0]
             else:
+                # Checking and other accounts can have all types
                 transaction_type = random.choices([
                     TransactionType.CARD_PAYMENT, TransactionType.WIRE_TRANSFER, 
                     TransactionType.ACH_TRANSFER, TransactionType.ATM_WITHDRAWAL,
@@ -226,6 +246,8 @@ class AdvancedDataGenerator:
             max_amount *= high_mod
         
         amount = Decimal(str(round(random.uniform(min_amount, max_amount), 2)))
+        
+
         
         # Fee calculation
         fee_amount = Decimal('0.00')
@@ -261,6 +283,19 @@ class AdvancedDataGenerator:
         else:
             status = TransactionStatus.COMPLETED
         
+        # Generate timestamp that's consistent with session if provided
+        if session_start and session_end:
+            # Transaction should occur during session time
+            time_diff = (session_end - session_start).total_seconds()
+            random_offset = random.uniform(0, time_diff)
+            transaction_time = session_start + timedelta(seconds=random_offset)
+        else:
+            # If no session, create a realistic time sequence for the customer
+            # Use base time as reference point for consistency
+            # Random offset within last 24 hours from base time
+            random_hours = random.uniform(0, 24)
+            transaction_time = self.base_time - timedelta(hours=random_hours)
+        
         transaction = Transaction(
             transaction_type=transaction_type,
             status=status,
@@ -290,6 +325,9 @@ class AdvancedDataGenerator:
                 'batch_id': f"B{random.randint(1000, 9999)}"
             }
         )
+        
+        # Override the default created_at timestamp
+        transaction.created_at = transaction_time
         
         return transaction
     
@@ -345,46 +383,25 @@ class AdvancedDataGenerator:
         
         return tags
     
-    def generate_fraud_alert(self, customer: Customer, transaction: Optional[Transaction] = None) -> FraudAlert:
-        """Generate a fraud alert"""
-        alert_types = [
-            'Unusual spending pattern', 'Geographic anomaly', 'Velocity check failed',
-            'Device mismatch', 'Time-based anomaly', 'Amount threshold exceeded',
-            'Merchant blacklist match', 'Card testing detected'
-        ]
-        
-        alert = FraudAlert(
-            customer_id=customer.id,
-            transaction_id=transaction.id if transaction else None,
-            alert_type=random.choice(alert_types),
-            severity=random.choices([RiskLevel.LOW, RiskLevel.MEDIUM, RiskLevel.HIGH, RiskLevel.CRITICAL], 
-                                  weights=[10, 30, 40, 20])[0],
-            description=self.fake.text(max_nb_chars=200),
-            confidence_score=random.uniform(0.5, 1.0),
-            rules_triggered=[f"RULE_{random.randint(100, 999)}" for _ in range(random.randint(1, 3))]
-        )
-        
-        return alert
+
     
-    def generate_market_data(self) -> MarketData:
-        """Generate realistic market data"""
-        symbol = random.choice(self.market_symbols)
-        base_price = random.uniform(50, 3000)
-        change = random.gauss(0, base_price * 0.02)  # 2% volatility
-        
-        return MarketData(
-            symbol=symbol,
-            price=Decimal(str(round(base_price, 2))),
-            change=Decimal(str(round(change, 2))),
-            change_percent=Decimal(str(round((change / base_price) * 100, 2))),
-            volume=random.randint(1000000, 100000000),
-            market_cap=Decimal(str(random.randint(1000000000, 3000000000000)))
-        )
+
     
     def generate_customer_session(self, customer: Customer) -> CustomerSession:
-        """Generate customer session data"""
-        started_at = datetime.now(timezone.utc) - timedelta(minutes=random.randint(0, 480))
+        """Generate customer session data with time boundaries"""
+        # Use base time for consistency and reproducibility
+        # Random offset within last 8 hours (480 minutes) from base time
+        random_offset_minutes = random.randint(0, 480)
+        started_at = self.base_time - timedelta(minutes=random_offset_minutes)
         session_duration = random.randint(30, 3600)  # 30 seconds to 1 hour
+        ended_at = started_at + timedelta(seconds=session_duration)
+        
+        # Initial estimates - will be updated later with actual data
+        estimated_transactions = random.randint(0, 5)  # Initial estimate
+        base_actions = max(1, session_duration // 60)  # At least 1 action per minute
+        transaction_actions = estimated_transactions * 3  # 3 actions per transaction
+        other_actions = random.randint(5, 20)  # Other actions
+        total_actions = base_actions + transaction_actions + other_actions
         
         return CustomerSession(
             customer_id=customer.id,
@@ -394,9 +411,9 @@ class AdvancedDataGenerator:
             ip_address=self.fake.ipv4(),
             location=self._generate_transaction_location(),
             started_at=started_at,
-            ended_at=started_at + timedelta(seconds=session_duration),
-            actions_count=random.randint(1, 50),
-            transactions_count=random.randint(0, 5)
+            ended_at=ended_at,
+            actions_count=total_actions,
+            transactions_count=estimated_transactions
         )
     
     def generate_outbox_event(self, aggregate_type: str, aggregate_id: str, 
@@ -415,9 +432,7 @@ class AdvancedDataGenerator:
             'customers': [],
             'accounts': [],
             'transactions': [],
-            'fraud_alerts': [],
             'sessions': [],
-            'market_data': [],
             'outbox_events': []
         }
         
@@ -435,37 +450,64 @@ class AdvancedDataGenerator:
                 customer_accounts.append(account)
                 scenario_data['accounts'].append(account)
             
-            # Generate transactions for each account
+            # Generate customer session FIRST to establish time boundaries
+            session = None
+            if random.random() > 0.3:  # 70% chance of having a session
+                session = self.generate_customer_session(customer)
+                scenario_data['sessions'].append(session)
+            
+            # Generate transactions for each account within session time if available
+            customer_transactions = []  # Collect transactions for this customer first
+            
             for account in customer_accounts:
                 daily_txns = random.randint(*self.transaction_patterns[customer.tier]['daily_txns'])
                 
                 for _ in range(daily_txns):
-                    transaction = self.generate_transaction(customer, account)
-                    scenario_data['transactions'].append(transaction)
-                    
-                    # Generate outbox event for transaction
-                    event = self.generate_outbox_event(
-                        'Transaction',
-                        transaction.id,
-                        EventType.TRANSACTION_INITIATED if transaction.status == TransactionStatus.PENDING 
-                        else EventType.TRANSACTION_COMPLETED,
-                        transaction.dict()
+                    # Pass session time boundaries to ensure transactions occur during session
+                    transaction = self.generate_transaction(
+                        customer, 
+                        account,
+                        session_start=session.started_at if session else None,
+                        session_end=session.ended_at if session else None
                     )
-                    scenario_data['outbox_events'].append(event)
-                    
-                    # Generate fraud alert for high-risk transactions
-                    if transaction.risk_level in [RiskLevel.HIGH, RiskLevel.CRITICAL] and random.random() > 0.7:
-                        alert = self.generate_fraud_alert(customer, transaction)
-                        scenario_data['fraud_alerts'].append(alert)
+                    customer_transactions.append(transaction)
             
-            # Generate customer session
-            if random.random() > 0.3:  # 70% chance of having a session
-                session = self.generate_customer_session(customer)
-                scenario_data['sessions'].append(session)
+            # Sort transactions by time to ensure logical sequence
+            customer_transactions.sort(key=lambda x: x.created_at)
+            
+            # Add sorted transactions to scenario
+            scenario_data['transactions'].extend(customer_transactions)
+            
+            # Generate outbox events for all transactions
+            for transaction in customer_transactions:
+                # Generate outbox event for transaction
+                event = self.generate_outbox_event(
+                    'Transaction',
+                    transaction.id,
+                    EventType.TRANSACTION_INITIATED if transaction.status == TransactionStatus.PENDING 
+                    else EventType.TRANSACTION_COMPLETED,
+                    transaction.dict()
+                )
+                scenario_data['outbox_events'].append(event)
+            
+            # Update session with actual transaction count after all transactions are created
+            if session:
+                # Recalculate session data based on actual transactions
+                session_transactions = [
+                    t for t in scenario_data['transactions'] 
+                    if t.customer_id == customer.id and 
+                    session.started_at <= t.created_at <= session.ended_at
+                ]
+                session.transactions_count = len(session_transactions)
+                
+                # Recalculate actions count based on actual transactions
+                base_actions = max(1, (session.ended_at - session.started_at).total_seconds() // 60)
+                transaction_actions = session.transactions_count * 3
+                other_actions = random.randint(5, 20)
+                session.actions_count = int(base_actions + transaction_actions + other_actions)
         
-        # Generate market data
-        for _ in range(10):
-            market_data = self.generate_market_data()
-            scenario_data['market_data'].append(market_data)
+        # Automatically advance base time for next run to simulate time progression
+        # This ensures each run generates data for a different day
+        self.advance_base_time(days=1)
         
         return scenario_data

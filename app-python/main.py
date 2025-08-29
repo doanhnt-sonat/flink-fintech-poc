@@ -76,8 +76,7 @@ async def generate_sample_data(db_connection: str, num_customers: int = 10):
     logger.info("Sample data generated",
                 customers=len(scenario_data['customers']),
                 accounts=len(scenario_data['accounts']),
-                transactions=len(scenario_data['transactions']),
-                fraud_alerts=len(scenario_data['fraud_alerts']))
+                transactions=len(scenario_data['transactions']))
 
 
 async def start_producer(db_connection: str, 

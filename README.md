@@ -99,7 +99,7 @@ await self._store_transaction(transaction)
 await self._store_outbox_events(transaction, customer, account)
 ```
 
-#### **4. Logic Tạo Data Fake (Fake Data Generation Logic):**
+#### **4. Logic Tạo Data Fake (Thực Tế từ Code):**
 
 ##### **A) Customer Generation với Behavioral Patterns:**
 ```python
@@ -111,19 +111,30 @@ customer_tiers = {
     'ENTERPRISE': 5%   # 5% khách hàng enterprise
 }
 
-# Risk score calculation dựa trên tier và income
-risk_score = base_risk + (tier_multiplier * random_factor) + income_factor
+# Risk score calculation dựa trên tier
+base_risk = {
+    CustomerTier.BASIC: 20,
+    CustomerTier.PREMIUM: 15,
+    CustomerTier.VIP: 10,
+    CustomerTier.ENTERPRISE: 5
+}
+risk_score = base_risk[tier] + random.gauss(0, 10)
 ```
 
 ##### **B) Transaction Generation với Realistic Patterns:**
 ```python
 # Time-based transaction rates (theo giờ trong ngày)
-transaction_rates = {
-    'morning': 0.3,    # 30% giao dịch buổi sáng (8-12h)
-    'afternoon': 0.4,  # 40% giao dịch buổi chiều (12-18h)
-    'evening': 0.2,    # 20% giao dịch buổi tối (18-22h)
-    'night': 0.1       # 10% giao dịch ban đêm (22-8h)
-}
+def _get_time_based_transaction_rate(self) -> float:
+    current_hour = datetime.now().hour
+    
+    if 9 <= current_hour <= 17:      # Business hours: 1.5x - 2.0x
+        return self.production_rate * random.uniform(1.5, 2.0)
+    elif 18 <= current_hour <= 22:   # Evening peak: 1.2x - 1.8x
+        return self.production_rate * random.uniform(1.2, 1.8)
+    elif 6 <= current_hour <= 8:     # Morning: 0.8x - 1.2x
+        return self.production_rate * random.uniform(0.8, 1.2)
+    else:                            # Night/early morning: 0.2x - 0.5x
+        return self.production_rate * random.uniform(0.2, 0.5)
 
 # Amount distribution theo customer tier
 amount_patterns = {
@@ -156,37 +167,60 @@ alert = FraudAlert(
 )
 ```
 
-##### **D) Compliance Flags Generation:**
+##### **D) Compliance Flags Generation (Thực Tế từ Code):**
 ```python
-# Compliance rules
-compliance_rules = {
-    'aml_check': amount > 10000,  # Anti-money laundering
-    'kyc_required': customer.kyc_status == 'pending',
-    'sanctions_check': customer.country in sanctions_list,
-    'pep_check': customer.is_politically_exposed_person
-}
+def _generate_compliance_flags(self, risk_score: float, amount: Decimal) -> List[str]:
+    flags = []
+    
+    if amount > Decimal('10000'):
+        flags.append('HIGH_VALUE')
+    
+    if risk_score > 70:
+        flags.append('HIGH_RISK')
+    
+    if amount > Decimal('3000') and random.random() > 0.8:
+        flags.append('STRUCTURING_SUSPECTED')
+    
+    if random.random() > 0.95:
+        flags.append('SANCTIONS_CHECK_REQUIRED')
+    
+    return flags
 ```
 
-##### **E) Geographic Distribution:**
+##### **E) Risk Scoring Logic (Thực Tế từ Code):**
 ```python
-# Geographic patterns theo customer tier
-geographic_patterns = {
-    'BASIC': ['local_city', 'nearby_towns'],
-    'PREMIUM': ['local_city', 'nearby_towns', 'major_cities'],
-    'VIP': ['local_city', 'major_cities', 'international'],
-    'ENTERPRISE': ['major_cities', 'international', 'global']
-}
+# Risk scoring trong generate_transaction
+risk_factors = 0
+if amount > Decimal('10000'):
+    risk_factors += 20
+if customer.risk_score > 50:
+    risk_factors += 10
+if transaction_type == TransactionType.WIRE_TRANSFER:
+    risk_factors += 15
+
+risk_score = min(100, risk_factors + random.uniform(0, 20))
+risk_level = RiskLevel.CRITICAL if risk_score > 80 else \
+            RiskLevel.HIGH if risk_score > 60 else \
+            RiskLevel.MEDIUM if risk_score > 30 else RiskLevel.LOW
 ```
 
-##### **F) Merchant Category Distribution:**
+##### **F) Customer Selection Logic (Thực Tế từ Code):**
 ```python
-# Merchant categories theo thời gian
-merchant_categories = {
-    'morning': ['coffee_shops', 'gas_stations', 'pharmacies'],
-    'afternoon': ['restaurants', 'retail_stores', 'banks'],
-    'evening': ['restaurants', 'entertainment', 'online_shopping'],
-    'night': ['gas_stations', 'convenience_stores', 'online_services']
-}
+def _select_customer_for_transaction(self) -> Customer:
+    # Higher tier customers are more active
+    weights = []
+    for customer in self.customers:
+        if customer.tier == CustomerTier.ENTERPRISE:
+            weight = 4.0
+        elif customer.tier == CustomerTier.VIP:
+            weight = 3.0
+        elif customer.tier == CustomerTier.PREMIUM:
+            weight = 2.0
+        else:
+            weight = 1.0
+        weights.append(weight)
+    
+    return random.choices(self.customers, weights=weights)[0]
 ```
 
 ## 🔌 Kafka Topics và Debezium Connectors

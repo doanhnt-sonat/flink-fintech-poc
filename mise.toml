@@ -1,72 +1,86 @@
-# Project dependencies: java, maven, flink, lein
+# Flink Fintech POC - Essential Tasks Only
 
-[tasks."docker:start:all"]
-description = "Start all required Docker containers (Kafka, Flink, Postgres, Flink, Kafka UI)"
+# =============================================================================
+# DOCKER INFRASTRUCTURE
+# =============================================================================
+
+[tasks."docker:start"]
+description = "Start all Docker containers"
 run = "docker compose -f docker/docker-compose.yml up -d"
 
-[tasks."docker:ps"]
-run = "docker compose -f docker/docker-compose.yml ps"
-
-[tasks."docker:shutdown"]
-description = "Shutdown and remove all Docker containers defined in docker-compose"
+[tasks."docker:stop"]
+description = "Stop all Docker containers"
 run = "docker compose -f docker/docker-compose.yml down"
 
-[tasks."docker:prune:volumes"]
-description = "Remove all unused Docker volumes"
-run = "docker volume prune -f"
+[tasks."docker:logs"]
+description = "Show logs from all containers"
+run = "docker compose -f docker/docker-compose.yml logs --follow"
 
-[tasks."flink:logs"]
-description = "Display Flink TaskManager logs in follow mode"
-run = "docker compose -f docker/docker-compose.yml logs taskmanager --follow"
+[tasks."docker:ps"]
+description = "Show status of all containers"
+run = "docker compose -f docker/docker-compose.yml ps"
 
-[tasks."docker:build:flink"]
-description = "Build image container for Flink JobManager and TaskManager"
-run = "docker compose -f docker/docker-compose.yml build jobmanager taskmanager"
+# =============================================================================
+# WEB INTERFACES
+# =============================================================================
 
 [tasks."open:kafka-ui"]
-description = "Open Kafka UI web interface in browser (port 8080)"
+description = "Open Kafka UI (port 8080)"
 run = "start http://localhost:8080"
 
 [tasks."open:flink-ui"]
-description = "Open Flink Dashboard web interface in browser (port 8081)"
+description = "Open Flink UI (port 8081)"
 run = "start http://localhost:8081"
 
+[tasks."open:pgadmin"]
+description = "Open pgAdmin (port 8082)"
+run = "start http://localhost:8082"
+
+# =============================================================================
+# PYTHON APP
+# =============================================================================
+
+[tasks."python:start"]
+description = "Start real-time data producer"
+run = "cd app-python && python main.py run-all --rate 5 --num-customers 50"
+
+[tasks."python:setup"]
+description = "Setup Python app and connectors"
+run = "cd app-python && python main.py setup-connectors"
+
+# =============================================================================
+# FLINK JOBS
+# =============================================================================
+
 [tasks."flink:build"]
-description = "Build Flink Jobs JAR package using Maven"
+description = "Build Flink JAR package"
 run = "cd flink-jobs && mvn clean package"
 
-[tasks."flink:run:customer-analytics"]
-depends = ["flink:build"]
-description = "Run Customer Analytics job that counts customers created per minute"
-run = "docker compose -f docker/docker-compose.yml exec -it jobmanager flink run -c flinkfintechpoc.jobs.CustomerAnalyticsJob /opt/flink/jobs/flink-jobs-1.0-SNAPSHOT.jar"
+[tasks."flink:run"]
+description = "Run main analytics job"
+run = "docker compose -f docker/docker-compose.yml exec -it jobmanager flink run -c flinkfintechpoc.jobs.FintechAnalyticsJob /opt/flink/jobs/flink-jobs-1.0-SNAPSHOT.jar"
 
-[tasks."flink:run:word-count"]
-depends = ["flink:build"]
-description = "Run Word Count job that processes static text data and counts word occurrences"
-run = "docker compose -f docker/docker-compose.yml exec -it jobmanager flink run -c flinkfintechpoc.jobs.WordCountJob /opt/flink/jobs/flink-jobs-1.0-SNAPSHOT.jar"
-
-[tasks."flink:run:customer-debezium"]
-depends = ["flink:build"]
-description = "Run Customer Debezium job that processes CDC events from PostgreSQL via Kafka"
-run = "docker compose -f docker/docker-compose.yml exec -it jobmanager flink run -c flinkfintechpoc.jobs.CustomerDebeziumJob /opt/flink/jobs/flink-jobs-1.0-SNAPSHOT.jar"
-
-[tasks."flink:jobs:cancel"]
-description = "Cancel all currently running Java Flink jobs"
-run = '''
-docker compose -f docker/docker-compose.yml exec jobmanager sh -c "flink list -r | grep -Eo '[0-9a-f]{32}' | xargs -r -n1 flink cancel"
-'''
-
-[tasks."flink:jobs:list"]
-description = "List all currently running Java Flink jobs"
+[tasks."flink:jobs"]
+description = "List running Flink jobs"
 run = "docker compose -f docker/docker-compose.yml exec jobmanager flink list"
 
-[tasks."connectors:register"]
-description = "Register Debezium Kafka Connectors for CDC data capture"
-run = "cd app && lein run -m flinkfintechpoc.connectors/register-connectors!"
-
-[tasks."simulate"]
-run = "cd app && lein run"
+# =============================================================================
+# DATABASE
+# =============================================================================
 
 [tasks."postgres:connect"]
-description = "Connect to PostgreSQL database (outbox_demo) using interactive psql client"
-run = "docker compose -f docker/docker-compose.yml exec -it postgres psql -U postgres -d outbox_demo"
+description = "Connect to PostgreSQL"
+run = "docker compose -f docker/docker-compose.yml exec -it postgres psql -U postgres -d fintech_demo"
+
+# =============================================================================
+# QUICK START
+# =============================================================================
+
+[tasks."start:all"]
+description = "Complete startup: start services, setup app, run Flink job"
+depends = ["docker:start", "python:setup", "python:start", "flink:build", "flink:run"]
+run = "echo 'All services started! Check: Kafka UI (8080), Flink UI (8081), pgAdmin (8082)'"
+
+[tasks."status"]
+description = "Show project status"
+run = "echo '=== DOCKER ===' && docker compose -f docker/docker-compose.yml ps && echo '=== FLINK JOBS ===' && docker compose -f docker/docker-compose.yml exec jobmanager flink list"

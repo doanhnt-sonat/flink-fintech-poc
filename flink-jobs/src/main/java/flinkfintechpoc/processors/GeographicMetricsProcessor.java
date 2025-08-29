@@ -17,19 +17,19 @@ import java.util.Map;
 /**
  * Processor for geographic transaction metrics
  */
-public class GeographicMetricsProcessor extends ProcessWindowFunction<Transaction, GeographicMetrics, String, TimeWindow> {
+public class GeographicMetricsProcessor extends ProcessWindowFunction<Transaction, GeographicMetrics, Object, TimeWindow> {
     
     private static final Logger LOG = LoggerFactory.getLogger(GeographicMetricsProcessor.class);
     
     @Override
-    public void process(String country, 
+    public void process(Object country, 
                        Context context, 
                        Iterable<Transaction> transactions, 
                        Collector<GeographicMetrics> collector) throws Exception {
         
         try {
             GeographicMetrics metrics = new GeographicMetrics(
-                country,
+                (String) country,
                 new Date(context.window().getStart()),
                 new Date(context.window().getEnd())
             );
@@ -93,11 +93,11 @@ public class GeographicMetricsProcessor extends ProcessWindowFunction<Transactio
         } catch (Exception e) {
             LOG.error("Error processing geographic metrics for country: " + country, e);
             // Emit default metrics to avoid pipeline failure
-            GeographicMetrics defaultMetrics = new GeographicMetrics(
-                country,
-                new Date(context.window().getStart()),
-                new Date(context.window().getEnd())
-            );
+                         GeographicMetrics defaultMetrics = new GeographicMetrics(
+                 (String) country,
+                 new Date(context.window().getStart()),
+                 new Date(context.window().getEnd())
+             );
             collector.collect(defaultMetrics);
         }
     }

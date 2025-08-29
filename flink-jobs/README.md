@@ -9,15 +9,13 @@ Flink job để xử lý dữ liệu fintech realtime và tạo dashboard analyt
 - Deserialization JSON thành Java objects
 - Stream processing với windowing functions
 
-### 2. Fraud Detection
+### 2. Fraud Detection & Transaction Analytics
 - Phát hiện gian lận realtime
-- Sử dụng multiple rules:
-  - Unusual transaction amounts
-  - High frequency transactions
-  - Geographic anomalies
-  - Device fingerprint anomalies
-  - Time-based anomalies
-  - Risk score thresholds
+- Risk scoring và pattern analysis
+- Suspicious transaction detection
+- Geographic và device anomalies
+- Transaction metrics và patterns
+- Amount analysis và frequency
 
 ### 3. Risk Analytics
 - Phân tích rủi ro theo customer
@@ -34,7 +32,7 @@ Flink job để xử lý dữ liệu fintech realtime và tạo dashboard analyt
 ### 5. Real-time Dashboard Metrics
 - Metrics realtime cho Grafana
 - Transaction counts và amounts
-- Fraud rates và risk scores
+- Fraud detection rates và risk scores
 - Geographic và merchant analytics
 
 ### 6. Anomaly Detection
@@ -53,9 +51,10 @@ flink-jobs/
 │   ├── models/                               # Data models
 │   │   ├── Transaction.java
 │   │   ├── Customer.java
-│   │   ├── FraudAlert.java
+│   │   ├── Account.java
+│   │   ├── Merchant.java
+│   │   ├── CustomerSession.java
 │   │   ├── OutboxEvent.java
-│   │   ├── FraudDetectionResult.java
 │   │   ├── TransactionMetrics.java
 │   │   ├── CustomerBehaviorMetrics.java
 │   │   ├── DashboardMetrics.java
@@ -68,10 +67,11 @@ flink-jobs/
 │   ├── deserializers/                        # JSON deserializers
 │   │   ├── TransactionDeserializer.java
 │   │   ├── CustomerDeserializer.java
-│   │   ├── FraudAlertDeserializer.java
+│   │   ├── AccountDeserializer.java
+│   │   ├── MerchantDeserializer.java
+│   │   ├── CustomerSessionDeserializer.java
 │   │   └── EventDeserializer.java
 │   └── processors/                           # Stream processors
-│       ├── FraudDetectionFunction.java
 │       ├── TransactionMetricsProcessor.java
 │       ├── CustomerBehaviorProcessor.java
 │       ├── RiskAnalyticsProcessor.java
@@ -182,10 +182,11 @@ export FLINK_CHECKPOINT_INTERVAL=10000
    - Total amount per minute
    - Transaction types distribution
 
-2. **Fraud Detection**
-   - Fraud alerts per minute
-   - Fraud rate trends
-   - Risk score distribution
+2. **Fraud Detection & Risk Monitoring**
+- Fraud alerts per minute
+- Fraud detection rate trends
+- Risk score distribution
+- Suspicious transaction patterns
 
 3. **Customer Analytics**
    - Customer segments

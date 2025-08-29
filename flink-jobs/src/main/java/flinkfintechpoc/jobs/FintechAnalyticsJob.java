@@ -13,6 +13,8 @@ import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.api.java.tuple.Tuple4;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
+import org.apache.flink.connector.kafka.sink.KafkaSink;
+import org.apache.flink.connector.kafka.sink.KafkaRecordSerializationSchema;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.windowing.ProcessWindowFunction;
@@ -52,13 +54,15 @@ public class FintechAnalyticsJob {
     // Kafka topics
     private static final String TRANSACTIONS_TOPIC = "fintech.transactions";
     private static final String CUSTOMERS_TOPIC = "fintech.customers";
-    private static final String FRAUD_ALERTS_TOPIC = "fintech.fraud_alerts";
+    private static final String ACCOUNTS_TOPIC = "fintech.accounts";
+    private static final String MERCHANTS_TOPIC = "fintech.merchants";
+    private static final String CUSTOMER_SESSIONS_TOPIC = "fintech.customer_sessions";
     private static final String EVENTS_TOPIC = "fintech.events";
     
     // Output topics for Grafana
     private static final String REAL_TIME_METRICS_TOPIC = "fintech.realtime_metrics";
-    private static final String FRAUD_DETECTION_TOPIC = "fintech.fraud_detection";
     private static final String CUSTOMER_ANALYTICS_TOPIC = "fintech.customer_analytics";
+    private static final String TRANSACTION_ANALYTICS_TOPIC = "fintech.transaction_analytics";
     
     public static void main(String[] args) throws Exception {
         // Set up the streaming execution environment
@@ -70,7 +74,9 @@ public class FintechAnalyticsJob {
         // Create Kafka sources
         KafkaSource<String> transactionSource = createKafkaSource(TRANSACTIONS_TOPIC);
         KafkaSource<String> customerSource = createKafkaSource(CUSTOMERS_TOPIC);
-        KafkaSource<String> fraudSource = createKafkaSource(FRAUD_ALERTS_TOPIC);
+        KafkaSource<String> accountSource = createKafkaSource(ACCOUNTS_TOPIC);
+        KafkaSource<String> merchantSource = createKafkaSource(MERCHANTS_TOPIC);
+        KafkaSource<String> customerSessionSource = createKafkaSource(CUSTOMER_SESSIONS_TOPIC);
         KafkaSource<String> eventsSource = createKafkaSource(EVENTS_TOPIC);
         
         // Create data streams
@@ -84,21 +90,28 @@ public class FintechAnalyticsJob {
             .map(new CustomerDeserializer())
             .name("Deserialize Customers");
             
-        DataStream<FraudAlert> fraudStream = env
-            .fromSource(fraudSource, WatermarkStrategy.noWatermarks(), "Fraud Alerts")
-            .map(new FraudAlertDeserializer())
-            .name("Deserialize Fraud Alerts");
+        DataStream<Account> accountStream = env
+            .fromSource(accountSource, WatermarkStrategy.noWatermarks(), "Accounts")
+            .map(new AccountDeserializer())
+            .name("Deserialize Accounts");
+            
+        DataStream<Merchant> merchantStream = env
+            .fromSource(merchantSource, WatermarkStrategy.noWatermarks(), "Merchants")
+            .map(new MerchantDeserializer())
+            .name("Deserialize Merchants");
+            
+        DataStream<CustomerSession> customerSessionStream = env
+            .fromSource(customerSessionSource, WatermarkStrategy.noWatermarks(), "Customer Sessions")
+            .map(new CustomerSessionDeserializer())
+            .name("Deserialize Customer Sessions");
             
         DataStream<OutboxEvent> eventsStream = env
             .fromSource(eventsSource, WatermarkStrategy.noWatermarks(), "Events")
             .map(new EventDeserializer())
             .name("Deserialize Events");
         
-        // 1. Real-time Transaction Processing with Fraud Detection
-        DataStream<FraudDetectionResult> fraudDetectionStream = transactionStream
-            .keyBy(Transaction::getCustomerId)
-            .map(new FraudDetectionFunction())
-            .name("Fraud Detection");
+        // 1. Real-time Transaction Processing and Analytics
+        // Transaction stream is ready for processing
         
         // 2. Real-time Transaction Analytics
         DataStream<TransactionMetrics> transactionMetricsStream = transactionStream
@@ -128,11 +141,12 @@ public class FintechAnalyticsJob {
             .process(new DashboardMetricsProcessor())
             .name("Dashboard Metrics");
         
-        // 6. Anomaly Detection
-        DataStream<AnomalyAlert> anomalyStream = transactionStream
+        // 6. Fraud Detection and Anomaly Detection
+        DataStream<AnomalyAlert> fraudDetectionStream = transactionStream
             .keyBy(Transaction::getCustomerId)
-            .map(new AnomalyDetectionFunction())
-            .name("Anomaly Detection");
+            .map(new FraudDetectionFunction())
+            .filter(alert -> alert != null)  // Filter out null alerts
+            .name("Fraud Detection");
         
         // 7. Geographic Transaction Analysis
         DataStream<GeographicMetrics> geographicStream = transactionStream
@@ -143,7 +157,7 @@ public class FintechAnalyticsJob {
             .name("Geographic Analysis");
         
         // 8. Merchant Analysis
-        DataStream<MerchantMetrics> merchantStream = transactionStream
+        DataStream<MerchantMetrics> merchantMetricsStream = transactionStream
             .filter(t -> t.getMerchantId() != null)
             .keyBy(Transaction::getMerchantId)
             .window(TumblingEventTimeWindows.of(Time.minutes(10)))
@@ -168,8 +182,60 @@ public class FintechAnalyticsJob {
             .process(new ComplianceProcessor())
             .name("Compliance Monitoring");
         
-        // Sink to external systems for Grafana
-        // You can add JDBC sink, Elasticsearch sink, or other sinks here
+        // Sink to Kafka topics for Grafana Dashboard
+        // Fraud Detection Alerts
+        fraudDetectionStream
+            .map(alert -> alert.toString())  // Convert to string for Kafka
+            .sinkTo(createKafkaSink("fintech.fraud_alerts"))
+            .name("Fraud Alerts Sink");
+        
+        // Compliance Metrics
+        complianceStream
+            .map(metrics -> metrics.toString())  // Convert to string for Kafka
+            .sinkTo(createKafkaSink("fintech.compliance_metrics"))
+            .name("Compliance Metrics Sink");
+        
+        // Transaction Metrics
+        transactionMetricsStream
+            .map(metrics -> metrics.toString())  // Convert to string for Kafka
+            .sinkTo(createKafkaSink("fintech.transaction_metrics"))
+            .name("Transaction Metrics Sink");
+        
+        // Customer Behavior Metrics
+        customerBehaviorStream
+            .map(metrics -> metrics.toString())  // Convert to string for Kafka
+            .sinkTo(createKafkaSink("fintech.customer_behavior"))
+            .name("Customer Behavior Sink");
+        
+        // Risk Analytics
+        riskAnalyticsStream
+            .map(analytics -> analytics.toString())  // Convert to string for Kafka
+            .sinkTo(createKafkaSink("fintech.risk_analytics"))
+            .name("Risk Analytics Sink");
+        
+        // Dashboard Metrics
+        dashboardMetricsStream
+            .map(metrics -> metrics.toString())  // Convert to string for Kafka
+            .sinkTo(createKafkaSink("fintech.dashboard_metrics"))
+            .name("Dashboard Metrics Sink");
+        
+        // Geographic Metrics
+        geographicStream
+            .map(metrics -> metrics.toString())  // Convert to string for Kafka
+            .sinkTo(createKafkaSink("fintech.geographic_metrics"))
+            .name("Geographic Metrics Sink");
+        
+        // Merchant Metrics
+        merchantMetricsStream
+            .map(metrics -> metrics.toString())  // Convert to string for Kafka
+            .sinkTo(createKafkaSink("fintech.merchant_metrics"))
+            .name("Merchant Metrics Sink");
+        
+        // Time Pattern Metrics
+        timePatternStream
+            .map(metrics -> metrics.toString())  // Convert to string for Kafka
+            .sinkTo(createKafkaSink("fintech.time_pattern_metrics"))
+            .name("Time Pattern Metrics Sink");
         
         // Execute the job
         env.execute("Fintech Real-time Analytics Job");
@@ -182,6 +248,16 @@ public class FintechAnalyticsJob {
             .setGroupId("flink-fintech-group")
             .setStartingOffsets(OffsetsInitializer.latest())
             .setValueOnlyDeserializer(new SimpleStringSchema())
+            .build();
+    }
+    
+    private static KafkaSink<String> createKafkaSink(String topic) {
+        return KafkaSink.<String>builder()
+            .setBootstrapServers("localhost:9092")
+            .setRecordSerializer(KafkaRecordSerializationSchema.builder()
+                .setTopic(topic)
+                .setValueSerializationSchema(new SimpleStringSchema())
+                .build())
             .build();
     }
 }

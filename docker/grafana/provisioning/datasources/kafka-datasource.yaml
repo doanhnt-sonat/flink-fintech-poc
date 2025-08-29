@@ -1,0 +1,21 @@
+apiVersion: 1
+
+datasources:
+  - name: Kafka
+    type: grafana-kafka-datasource
+    access: proxy
+    url: http://kafka:29092
+    jsonData:
+      bootstrapServers: kafka:29092
+      clientId: grafana-kafka-client
+      groupId: grafana-kafka-group
+      topics:
+        - fintech.fraud_alerts
+        - fintech.transaction_metrics
+        - fintech.risk_analytics
+        - fintech.dashboard_metrics
+        - fintech.customer_behavior
+        - fintech.compliance_metrics
+        - fintech.geographic_metrics
+        - fintech.merchant_metrics
+        - fintech.time_pattern_metrics

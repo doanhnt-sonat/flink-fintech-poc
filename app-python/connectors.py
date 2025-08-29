@@ -12,12 +12,14 @@ from decimal import Decimal
 
 import requests
 import psycopg2
+from psycopg2 import sql
 from psycopg2.extras import RealDictCursor
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 import structlog
+from urllib.parse import urlparse, urlunparse
 
-from models import OutboxEvent, StreamEvent
+from models import OutboxEvent
 
 logger = structlog.get_logger()
 
@@ -29,6 +31,8 @@ class DatabaseManager:
         self.connection_string = connection_string
         self.engine = create_engine(connection_string)
         self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
+        # Ensure target database exists before any operations
+        self._ensure_database_exists()
     
     def get_connection(self):
         """Get raw psycopg2 connection"""
@@ -38,6 +42,40 @@ class DatabaseManager:
         """Get SQLAlchemy session"""
         return self.SessionLocal()
     
+    def _build_admin_connection_string(self) -> str:
+        """Build a connection string to the 'postgres' admin database on same host."""
+        parsed = urlparse(self.connection_string)
+        # Replace path with /postgres
+        admin_path = '/postgres'
+        admin_url = parsed._replace(path=admin_path)
+        return urlunparse(admin_url)
+
+    def _extract_database_name(self) -> str:
+        parsed = urlparse(self.connection_string)
+        # path like /fintech_demo
+        return parsed.path.lstrip('/') or 'postgres'
+
+    def _ensure_database_exists(self):
+        """Create target database if it does not exist yet."""
+        db_name = self._extract_database_name()
+        try:
+            # Try connecting to the target database
+            with psycopg2.connect(self.connection_string) as _:
+                return
+        except psycopg2.OperationalError as e:
+            # Likely database does not exist; attempt to create
+            if 'does not exist' not in str(e):
+                # Not a missing DB error; re-raise
+                raise
+            admin_conn_str = self._build_admin_connection_string()
+            with psycopg2.connect(admin_conn_str) as conn:
+                conn.autocommit = True
+                with conn.cursor() as cur:
+                    cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (db_name,))
+                    exists = cur.fetchone() is not None
+                    if not exists:
+                        cur.execute(sql.SQL("CREATE DATABASE {}" ).format(sql.Identifier(db_name)))
+        
     def init_tables(self):
         """Initialize database tables for the fintech app"""
         with self.get_connection() as conn:
@@ -229,17 +267,6 @@ class DatabaseManager:
                 logger.info("Database tables initialized successfully")
 
 
-# KafkaManager class removed - using Debezium outbox pattern instead
-# All Kafka operations now handled by Debezium connectors
-
-class DecimalEncoder(json.JSONEncoder):
-    """JSON encoder for Decimal types"""
-    def default(self, obj):
-        if isinstance(obj, Decimal):
-            return float(obj)
-        elif isinstance(obj, datetime):
-            return obj.isoformat()
-        return super(DecimalEncoder, self).default(obj)
 
 
 class DebeziumConnectorManager:

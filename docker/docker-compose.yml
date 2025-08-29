@@ -49,6 +49,29 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
 
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    hostname: pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8082:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@fintech.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+      - ./pgadmin-servers.json:/pgadmin4/servers.json
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/misc/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   # Debezium Kafka Connect
   kafka-connect:
     image: debezium/connect:2.5
@@ -75,7 +98,31 @@ services:
       VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
       KEY_CONVERTER_SCHEMAS_ENABLE: "false"
       VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
-      CONNECT_PLUGIN_PATH: /kafka/connect
+      
+  # Grafana for Dashboard
+  grafana:
+    image: grafana/grafana:latest
+    hostname: grafana
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_INSTALL_PLUGINS: grafana-kafka-datasource
+      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: grafana-kafka-datasource
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+     
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
@@ -161,3 +208,5 @@ services:
 volumes:
   kafka-data:
   postgres-data:
+  pgadmin-data:
+  grafana-data:

@@ -6,6 +6,7 @@ Continuously generates and stores realistic financial data in PostgreSQL using o
 import asyncio
 import json
 import logging
+import os
 import random
 import signal
 import sys
@@ -18,8 +19,8 @@ import uuid
 import structlog
 
 from models import (
-    Customer, Account, Transaction, Merchant, FraudAlert, 
-    OutboxEvent, EventType, StreamEvent, TransactionStatus,
+    Customer, Account, Transaction, Merchant, 
+    OutboxEvent, EventType, TransactionStatus,
     TransactionType, CustomerTier, RiskLevel
 )
 from data_generator import AdvancedDataGenerator
@@ -57,6 +58,16 @@ class RealtimeDataProducer:
         self.accounts: List[Account] = []
         self.customer_accounts: Dict[str, List[Account]] = {}
         
+        # Progressive time management
+        # Load or initialize progressive time from file
+        self.time_file = "progressive_time.json"
+        self.current_base_time = self._load_progressive_time()
+        self.last_time_update = None
+        self.time_progression_interval = 3600  # Update base time every hour
+        
+        # Initialize data generator's base time immediately
+        self.data_generator.base_time = self.current_base_time
+        
         # Statistics
         self.stats = {
             'transactions_generated': 0,
@@ -72,6 +83,69 @@ class RealtimeDataProducer:
         # Setup signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
+    
+    def _load_progressive_time(self) -> datetime:
+        """Load progressive time from file or use initial time"""
+        try:
+            if os.path.exists(self.time_file):
+                with open(self.time_file, 'r') as f:
+                    time_data = json.load(f)
+                    saved_time = datetime.fromisoformat(time_data['base_time'])
+                    logger.info("Loaded progressive time from file", 
+                               saved_time=saved_time,
+                               file=self.time_file)
+                    return saved_time
+            else:
+                # Use initial time if file doesn't exist
+                initial_time = datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+                logger.info("No time file found, using initial time", 
+                           initial_time=initial_time)
+                return initial_time
+        except Exception as e:
+            logger.warning("Failed to load progressive time, using initial time", 
+                          error=str(e))
+            return datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+    
+    def _save_progressive_time(self):
+        """Save current progressive time to file"""
+        try:
+            time_data = {
+                'base_time': self.current_base_time.isoformat(),
+                'last_updated': datetime.now(timezone.utc).isoformat(),
+                'version': '1.0'
+            }
+            
+            with open(self.time_file, 'w') as f:
+                json.dump(time_data, f, indent=2)
+            
+            logger.info("Progressive time saved to file", 
+                       time=self.current_base_time,
+                       file=self.time_file)
+        except Exception as e:
+            logger.error("Failed to save progressive time", error=str(e))
+    
+    async def _update_base_time_if_needed(self):
+        """Update base time to simulate real-time progression"""
+        now = datetime.now(timezone.utc)
+        
+        if (self.last_time_update is None or 
+            (now - self.last_time_update).total_seconds() >= self.time_progression_interval):
+            
+            # Advance base time by 1 hour
+            if self.current_base_time is None:
+                self.current_base_time = datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+            else:
+                self.current_base_time += timedelta(hours=1)
+            
+            # Update data generator's base time
+            self.data_generator.base_time = self.current_base_time
+            
+            self.last_time_update = now
+            
+            # Save progressive time to file
+            self._save_progressive_time()
+            
+            logger.info("Base time updated and saved", new_base_time=self.current_base_time)
     
     def _signal_handler(self, signum, frame):
         """Handle shutdown signals gracefully"""
@@ -136,26 +210,24 @@ class RealtimeDataProducer:
                     
                     # Store accounts
                     for account in self.accounts:
-                        cursor.execute("""
-                            INSERT INTO accounts (
-                                id, customer_id, account_number, account_type, currency,
-                                balance, available_balance, credit_limit, interest_rate,
-                                is_active, is_frozen, overdraft_protection, minimum_balance,
-                                monthly_fee, branch_code, routing_number, created_at,
-                                updated_at, version
-                            ) VALUES (
-                                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                                %s, %s, %s, %s, %s, %s, %s
-                            ) ON CONFLICT (id) DO NOTHING
-                        """, (
-                            account.id, account.customer_id, account.account_number,
-                            account.account_type.value, account.currency, account.balance,
-                            account.available_balance, account.credit_limit, account.interest_rate,
-                            account.is_active, account.is_frozen, account.overdraft_protection,
-                            account.minimum_balance, account.monthly_fee, account.branch_code,
-                            account.routing_number, account.created_at, account.updated_at,
-                            account.version
-                        ))
+                                            cursor.execute("""
+                        INSERT INTO accounts (
+                            id, customer_id, account_number, account_type, currency,
+                            interest_rate, is_active, is_frozen, overdraft_protection, 
+                            minimum_balance, monthly_fee, branch_code, routing_number, 
+                            created_at, updated_at, version
+                        ) VALUES (
+                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s
+                        ) ON CONFLICT (id) DO NOTHING
+                    """, (
+                        account.id, account.customer_id, account.account_number,
+                        account.account_type.value, account.currency, account.interest_rate,
+                        account.is_active, account.is_frozen, account.overdraft_protection,
+                        account.minimum_balance, account.monthly_fee, account.branch_code,
+                        account.routing_number, account.created_at, account.updated_at,
+                        account.version
+                    ))
                     
                     conn.commit()
                     logger.info("Initial data stored in database")
@@ -198,6 +270,9 @@ class RealtimeDataProducer:
     async def _generate_and_send_transaction(self):
         """Generate and send a single transaction with all related events"""
         try:
+            # Update base time if needed for progressive time simulation
+            await self._update_base_time_if_needed()
+            
             # Select customer and account
             customer = self._select_customer_for_transaction()
             customer_accounts = self.customer_accounts.get(customer.id, [])
@@ -208,7 +283,7 @@ class RealtimeDataProducer:
             
             account = random.choice(customer_accounts)
             
-            # Generate transaction
+            # Generate transaction with current progressive base time
             transaction = self.data_generator.generate_transaction(customer, account)
             
             # Store in database
@@ -330,48 +405,11 @@ class RealtimeDataProducer:
     async def _generate_related_events(self, transaction: Transaction, customer: Customer, account: Account):
         """Generate and send related events (fraud alerts, compliance, etc.)"""
         try:
-            # Generate fraud alert for high-risk transactions
-            if transaction.risk_level in [RiskLevel.HIGH, RiskLevel.CRITICAL] and random.random() > 0.6:
-                fraud_alert = self.data_generator.generate_fraud_alert(customer, transaction)
-                
-                # Store in database
-                with self.db_manager.get_connection() as conn:
-                    with conn.cursor() as cursor:
-                        cursor.execute("""
-                            INSERT INTO fraud_alerts (
-                                id, customer_id, transaction_id, alert_type, severity,
-                                description, confidence_score, rules_triggered, is_resolved,
-                                resolution_notes, created_at, updated_at, version
-                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        """, (
-                            fraud_alert.id, fraud_alert.customer_id, fraud_alert.transaction_id,
-                            fraud_alert.alert_type, fraud_alert.severity.value, fraud_alert.description,
-                            fraud_alert.confidence_score, json.dumps(fraud_alert.rules_triggered),
-                            fraud_alert.is_resolved, fraud_alert.resolution_notes,
-                            fraud_alert.created_at, fraud_alert.updated_at, fraud_alert.version
-                        ))
-                        conn.commit()
-                
-                # Store fraud alert event in outbox table
-                fraud_outbox_event = OutboxEvent(
-                    aggregate_type='FraudAlert',
-                    aggregate_id=fraud_alert.id,
-                    event_type='fraud_alert_created',
-                    payload={
-                        'event_id': str(uuid.uuid4()),
-                        'timestamp': datetime.now(timezone.utc).isoformat(),
-                        'customer_id': customer.id,
-                        'transaction_id': transaction.id,
-                        'alert': fraud_alert.dict()
-                    }
-                )
-                
-                await self._store_outbox_event(fraud_outbox_event)
-                
-                self.stats['events_sent'] += 1
+
             
             # Generate customer session data occasionally
             if random.random() > 0.9:  # 10% chance
+                # Use current progressive base time for session generation
                 session = self.data_generator.generate_customer_session(customer)
                 
                 # Store customer session event in outbox table
@@ -396,28 +434,7 @@ class RealtimeDataProducer:
     
     # Method _send_to_kafka removed - now using outbox pattern with Debezium
     
-    async def _generate_market_data(self):
-        """Generate and send market data updates"""
-        try:
-            market_data = self.data_generator.generate_market_data()
-            
-            # Store market data event in outbox table
-            market_outbox_event = OutboxEvent(
-                aggregate_type='MarketData',
-                aggregate_id=market_data.symbol,
-                event_type='market_data_update',
-                payload={
-                    'event_id': str(uuid.uuid4()),
-                    'timestamp': datetime.now(timezone.utc).isoformat(),
-                    'symbol': market_data.symbol,
-                    'data': market_data.dict()
-                }
-            )
-            
-            await self._store_outbox_event(market_outbox_event)
-            
-        except Exception as e:
-            logger.error("Failed to generate market data", error=str(e))
+
     
     async def start(self):
         """Start the realtime data producer"""
@@ -435,7 +452,6 @@ class RealtimeDataProducer:
         # Start background tasks
         tasks = [
             asyncio.create_task(self._transaction_generator_loop()),
-            asyncio.create_task(self._market_data_loop()),
             asyncio.create_task(self._stats_reporter_loop())
         ]
         
@@ -465,18 +481,7 @@ class RealtimeDataProducer:
                 logger.error("Error in transaction generator loop", error=str(e))
                 await asyncio.sleep(1)  # Prevent tight error loop
     
-    async def _market_data_loop(self):
-        """Market data generation loop"""
-        while self.is_running:
-            try:
-                await self._generate_market_data()
-                await asyncio.sleep(random.uniform(5, 15))  # Market data every 5-15 seconds
-                
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error("Error in market data loop", error=str(e))
-                await asyncio.sleep(5)
+
     
     async def _stats_reporter_loop(self):
         """Statistics reporting loop"""
@@ -493,7 +498,9 @@ class RealtimeDataProducer:
                                events=self.stats['events_sent'],
                                errors=self.stats['errors'],
                                rate_per_second=round(rate, 2),
-                               runtime_minutes=round(runtime.total_seconds() / 60, 2))
+                               runtime_minutes=round(runtime.total_seconds() / 60, 2),
+                               current_base_time=self.current_base_time,
+                               time_progression_hours=round((self.current_base_time - datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc)).total_seconds() / 3600, 1) if self.current_base_time else 0)
                 
             except asyncio.CancelledError:
                 break
@@ -511,6 +518,37 @@ class RealtimeDataProducer:
         logger.info("Producer stopped", 
                    total_transactions=self.stats['transactions_generated'],
                    total_events=self.stats['events_sent'])
+    
+    def reset_progressive_time(self):
+        """Reset progressive time to initial value"""
+        self.current_base_time = datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        self.last_time_update = None
+        self.data_generator.reset_base_time()
+        
+        # Save reset time to file
+        self._save_progressive_time()
+        
+        logger.info("Progressive time reset to initial value and saved")
+    
+    def get_current_progressive_time(self) -> Optional[datetime]:
+        """Get current progressive base time"""
+        return self.current_base_time
+    
+    def advance_progressive_time(self, days: int = 1):
+        """Manually advance progressive time by specified days and save to file"""
+        self.current_base_time += timedelta(days=days)
+        self.data_generator.base_time = self.current_base_time
+        
+        # Save to file
+        self._save_progressive_time()
+        
+        logger.info("Progressive time manually advanced", 
+                   days=days, 
+                   new_time=self.current_base_time)
+    
+    def get_time_file_path(self) -> str:
+        """Get the path to the progressive time file"""
+        return os.path.abspath(self.time_file)
 
 
 async def main():

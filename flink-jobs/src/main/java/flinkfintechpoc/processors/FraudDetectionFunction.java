@@ -1,7 +1,7 @@
 package flinkfintechpoc.processors;
 
 import flinkfintechpoc.models.Transaction;
-import flinkfintechpoc.models.FraudDetectionResult;
+import flinkfintechpoc.models.AnomalyAlert;
 import org.apache.flink.api.common.functions.RichMapFunction;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
@@ -10,241 +10,232 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
-import java.util.ArrayList;
 import java.util.Date;
-import java.util.List;
-import java.util.UUID;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
- * Real-time fraud detection function for transactions
+ * Fraud Detection Function for real-time transaction monitoring
+ * Detects suspicious patterns and generates alerts based on risk factors
  */
-public class FraudDetectionFunction extends RichMapFunction<Transaction, FraudDetectionResult> {
+public class FraudDetectionFunction extends RichMapFunction<Transaction, AnomalyAlert> {
     
     private static final Logger LOG = LoggerFactory.getLogger(FraudDetectionFunction.class);
     
-    // State to track customer behavior
-    private ValueState<CustomerBehaviorState> customerBehaviorState;
+    // Risk thresholds
+    private static final double HIGH_RISK_THRESHOLD = 70.0;
+    private static final double CRITICAL_RISK_THRESHOLD = 90.0;
+    private static final BigDecimal SUSPICIOUS_AMOUNT_THRESHOLD = new BigDecimal("10000.00");
+    private static final int HIGH_FREQUENCY_THRESHOLD = 10; // transactions per hour
     
+    // State for tracking customer behavior
+    private ValueState<CustomerTransactionState> customerState;
+    
+    @Override
     public void open(Configuration parameters) throws Exception {
-        ValueStateDescriptor<CustomerBehaviorState> descriptor = 
-            new ValueStateDescriptor<>("customer-behavior", CustomerBehaviorState.class);
-        customerBehaviorState = getRuntimeContext().getState(descriptor);
+        ValueStateDescriptor<CustomerTransactionState> descriptor = 
+            new ValueStateDescriptor<>("customer-transaction-state", CustomerTransactionState.class);
+        customerState = getRuntimeContext().getState(descriptor);
     }
     
     @Override
-    public FraudDetectionResult map(Transaction transaction) throws Exception {
-        try {
-            // Get current customer behavior state
-            CustomerBehaviorState currentState = customerBehaviorState.value();
-            if (currentState == null) {
-                currentState = new CustomerBehaviorState(transaction.getCustomerId());
+    public AnomalyAlert map(Transaction transaction) throws Exception {
+        CustomerTransactionState state = customerState.value();
+        if (state == null) {
+            state = new CustomerTransactionState();
+        }
+        
+        // Update state
+        state.updateTransaction(transaction);
+        customerState.update(state);
+        
+        // Analyze for fraud patterns
+        FraudDetectionResult result = analyzeTransaction(transaction, state);
+        
+        if (result.isSuspicious()) {
+            LOG.warn("Suspicious transaction detected - Transaction ID: {}, Customer ID: {}, Risk Score: {}, Alert Types: {}", 
+                    transaction.getId(),
+                    transaction.getCustomerId(),
+                    result.getRiskScore(),
+                    result.getAlertTypes());
+            
+            return createAnomalyAlert(transaction, result);
+        }
+        
+        // Return null if no alert needed
+        return null;
+    }
+    
+    private FraudDetectionResult analyzeTransaction(Transaction transaction, CustomerTransactionState state) {
+        FraudDetectionResult result = new FraudDetectionResult();
+        double riskScore = transaction.getRiskScore();
+        
+        // 1. High risk score from upstream
+        if (riskScore >= CRITICAL_RISK_THRESHOLD) {
+            result.addAlert("CRITICAL_RISK_SCORE", "Transaction has critical risk score: " + riskScore);
+            result.setRiskScore(Math.max(result.getRiskScore(), riskScore));
+        } else if (riskScore >= HIGH_RISK_THRESHOLD) {
+            result.addAlert("HIGH_RISK_SCORE", "Transaction has high risk score: " + riskScore);
+            result.setRiskScore(Math.max(result.getRiskScore(), riskScore));
+        }
+        
+        // 2. Suspicious amount
+        if (transaction.getAmount().compareTo(SUSPICIOUS_AMOUNT_THRESHOLD) > 0) {
+            result.addAlert("SUSPICIOUS_AMOUNT", "Transaction amount exceeds threshold: " + transaction.getAmount());
+            result.setRiskScore(Math.max(result.getRiskScore(), 80.0));
+        }
+        
+        // 3. High frequency transactions
+        if (state.getRecentTransactionCount() > HIGH_FREQUENCY_THRESHOLD) {
+            result.addAlert("HIGH_FREQUENCY", "Customer has " + state.getRecentTransactionCount() + " transactions in last hour");
+            result.setRiskScore(Math.max(result.getRiskScore(), 75.0));
+        }
+        
+        // 4. Geographic anomaly
+        if (state.hasGeographicAnomaly(transaction)) {
+            result.addAlert("GEOGRAPHIC_ANOMALY", "Transaction location differs from customer's usual pattern");
+            result.setRiskScore(Math.max(result.getRiskScore(), 70.0));
+        }
+        
+        // 5. Device anomaly
+        if (state.hasDeviceAnomaly(transaction)) {
+            result.addAlert("DEVICE_ANOMALY", "Transaction from unusual device or IP");
+            result.setRiskScore(Math.max(result.getRiskScore(), 65.0));
+        }
+        
+        // 6. Time-based anomaly
+        if (state.hasTimeAnomaly(transaction)) {
+            result.addAlert("TIME_ANOMALY", "Transaction at unusual time for customer");
+            result.setRiskScore(Math.max(result.getRiskScore(), 60.0));
+        }
+        
+        // 7. Compliance flags
+        if (transaction.getComplianceFlags() != null && !transaction.getComplianceFlags().isEmpty()) {
+            for (String flag : transaction.getComplianceFlags()) {
+                if (flag.equals("HIGH_VALUE")) {
+                    result.addAlert("HIGH_VALUE_FLAG", "Transaction flagged as high value");
+                    result.setRiskScore(Math.max(result.getRiskScore(), 85.0));
+                } else if (flag.equals("HIGH_RISK")) {
+                    result.addAlert("HIGH_RISK_FLAG", "Transaction flagged as high risk");
+                    result.setRiskScore(Math.max(result.getRiskScore(), 90.0));
+                }
             }
-            
-            // Update state with current transaction
-            currentState.updateWithTransaction(transaction);
-            customerBehaviorState.update(currentState);
-            
-            // Perform fraud detection
-            FraudDetectionResult result = detectFraud(transaction, currentState);
-            
-            LOG.info("Fraud detection completed for transaction {}: {}", 
-                    transaction.getId(), result.isFraudulent() ? "FRAUDULENT" : "LEGITIMATE");
-            
-            return result;
-            
-        } catch (Exception e) {
-            LOG.error("Error in fraud detection for transaction: " + transaction.getId(), e);
-            // Return safe default
-            return new FraudDetectionResult(
-                UUID.randomUUID().toString(),
-                transaction.getCustomerId(),
-                transaction.getId(),
-                false,
-                0.0
-            );
         }
+        
+        return result;
     }
     
-    private FraudDetectionResult detectFraud(Transaction transaction, CustomerBehaviorState state) {
-        List<String> triggeredRules = new ArrayList<>();
-        double fraudScore = 0.0;
-        String fraudType = "none";
-        String recommendation = "allow";
+    private AnomalyAlert createAnomalyAlert(Transaction transaction, FraudDetectionResult result) {
+        AnomalyAlert alert = new AnomalyAlert();
+        alert.setId("ALERT-" + System.currentTimeMillis());
+        alert.setCustomerId(transaction.getCustomerId());
+        alert.setAlertType("FRAUD_DETECTION");
+        alert.setSeverity(result.getRiskScore() >= CRITICAL_RISK_THRESHOLD ? "CRITICAL" : "HIGH");
+        alert.setDescription("Fraud detection alert: " + String.join(", ", result.getAlertTypes()));
+        alert.setConfidenceScore(Math.min(result.getRiskScore() / 100.0, 0.95));
+        alert.setTriggeredRules(result.getAlertTypes());
+        alert.setTransactionAmount(transaction.getAmount());
+        alert.setTransactionType(transaction.getTransactionType());
+        alert.setDetectedAt(new Date());
         
-        // Rule 1: Unusual transaction amount
-        if (isUnusualAmount(transaction.getAmount(), state)) {
-            fraudScore += 25.0;
-            triggeredRules.add("unusual_amount");
-            fraudType = "amount_anomaly";
-        }
-        
-        // Rule 2: High frequency transactions
-        if (isHighFrequency(state)) {
-            fraudScore += 30.0;
-            triggeredRules.add("high_frequency");
-            fraudType = "frequency_anomaly";
-        }
-        
-        // Rule 3: Geographic anomaly
-        if (isGeographicAnomaly(transaction, state)) {
-            fraudScore += 35.0;
-            triggeredRules.add("geographic_anomaly");
-            fraudType = "location_anomaly";
-        }
-        
-        // Rule 4: Device fingerprint anomaly
-        if (isDeviceAnomaly(transaction, state)) {
-            fraudScore += 20.0;
-            triggeredRules.add("device_anomaly");
-            fraudType = "device_anomaly";
-        }
-        
-        // Rule 5: Time-based anomaly
-        if (isTimeAnomaly(transaction, state)) {
-            fraudScore += 15.0;
-            triggeredRules.add("time_anomaly");
-            fraudType = "time_anomaly";
-        }
-        
-        // Rule 6: Risk score threshold
-        if (transaction.getRiskScore() > 80.0) {
-            fraudScore += 40.0;
-            triggeredRules.add("high_risk_score");
-            fraudType = "high_risk";
-        }
-        
-        // Determine if transaction is fraudulent
-        boolean isFraudulent = fraudScore >= 50.0;
-        
-        // Set recommendation
-        if (fraudScore >= 80.0) {
-            recommendation = "block";
-        } else if (fraudScore >= 50.0) {
-            recommendation = "review";
-        } else {
-            recommendation = "allow";
-        }
-        
-        // Determine risk level
-        String riskLevel = "low";
-        if (fraudScore >= 80.0) {
-            riskLevel = "critical";
-        } else if (fraudScore >= 60.0) {
-            riskLevel = "high";
-        } else if (fraudScore >= 40.0) {
-            riskLevel = "medium";
-        }
-        
-        return new FraudDetectionResult(
-            UUID.randomUUID().toString(),
-            transaction.getCustomerId(),
-            transaction.getId(),
-            isFraudulent,
-            fraudScore
-        );
-    }
-    
-    private boolean isUnusualAmount(BigDecimal amount, CustomerBehaviorState state) {
-        if (state.getAverageAmount().compareTo(BigDecimal.ZERO) == 0) {
-            return false; // Not enough data
-        }
-        
-        BigDecimal threshold = state.getAverageAmount().multiply(new BigDecimal("3"));
-        return amount.compareTo(threshold) > 0;
-    }
-    
-    private boolean isHighFrequency(CustomerBehaviorState state) {
-        long timeWindowMs = 5 * 60 * 1000; // 5 minutes
-        long currentTime = System.currentTimeMillis();
-        long recentTransactions = state.getRecentTransactions().stream()
-            .filter(timestamp -> (currentTime - timestamp) < timeWindowMs)
-            .count();
-        
-        return recentTransactions > 10; // More than 10 transactions in 5 minutes
-    }
-    
-    private boolean isGeographicAnomaly(Transaction transaction, CustomerBehaviorState state) {
-        if (transaction.getTransactionLocation() == null || state.getCommonLocations().isEmpty()) {
-            return false;
-        }
-        
-        String currentCountry = (String) transaction.getTransactionLocation().get("country");
-        return !state.getCommonLocations().contains(currentCountry);
-    }
-    
-    private boolean isDeviceAnomaly(Transaction transaction, CustomerBehaviorState state) {
-        if (transaction.getDeviceFingerprint() == null || state.getCommonDevices().isEmpty()) {
-            return false;
-        }
-        
-        return !state.getCommonDevices().contains(transaction.getDeviceFingerprint());
-    }
-    
-    private boolean isTimeAnomaly(Transaction transaction, CustomerBehaviorState state) {
-        // Check if transaction is outside normal business hours
-        // This is a simplified check - in production you'd use more sophisticated logic
-        return false;
+        return alert;
     }
     
     /**
-     * Internal state class to track customer behavior
+     * Customer transaction state for fraud detection
      */
-    private static class CustomerBehaviorState {
+    public static class CustomerTransactionState {
         private String customerId;
-        private List<Long> recentTransactions;
-        private BigDecimal averageAmount;
-        private List<String> commonLocations;
-        private List<String> commonDevices;
-        private Date lastUpdated;
+        private Map<String, Integer> locationCounts = new HashMap<>();
+        private Map<String, Integer> deviceCounts = new HashMap<>();
+        private int recentTransactionCount = 0;
+        private long lastTransactionTime = 0;
+        private BigDecimal totalAmount = BigDecimal.ZERO;
         
-        public CustomerBehaviorState(String customerId) {
-            this.customerId = customerId;
-            this.recentTransactions = new ArrayList<>();
-            this.averageAmount = BigDecimal.ZERO;
-            this.commonLocations = new ArrayList<>();
-            this.commonDevices = new ArrayList<>();
-            this.lastUpdated = new Date();
-        }
-        
-        public void updateWithTransaction(Transaction transaction) {
-            // Add current transaction timestamp
-            recentTransactions.add(System.currentTimeMillis());
+        public void updateTransaction(Transaction transaction) {
+            this.customerId = transaction.getCustomerId();
+            this.recentTransactionCount++;
+            this.lastTransactionTime = System.currentTimeMillis();
+            this.totalAmount = this.totalAmount.add(transaction.getAmount());
             
-            // Keep only last 100 transactions
-            if (recentTransactions.size() > 100) {
-                recentTransactions.remove(0);
-            }
-            
-            // Update average amount
-            if (averageAmount.compareTo(BigDecimal.ZERO) == 0) {
-                averageAmount = transaction.getAmount();
-            } else {
-                averageAmount = averageAmount.add(transaction.getAmount()).divide(new BigDecimal("2"));
-            }
-            
-            // Update common locations
+            // Update location counts
             if (transaction.getTransactionLocation() != null) {
                 String country = (String) transaction.getTransactionLocation().get("country");
-                if (country != null && !commonLocations.contains(country)) {
-                    commonLocations.add(country);
+                if (country != null) {
+                    locationCounts.put(country, locationCounts.getOrDefault(country, 0) + 1);
                 }
             }
             
-            // Update common devices
-            if (transaction.getDeviceFingerprint() != null && 
-                !commonDevices.contains(transaction.getDeviceFingerprint())) {
-                commonDevices.add(transaction.getDeviceFingerprint());
+            // Update device counts
+            if (transaction.getDeviceFingerprint() != null) {
+                deviceCounts.put(transaction.getDeviceFingerprint(), 
+                               deviceCounts.getOrDefault(transaction.getDeviceFingerprint(), 0) + 1);
             }
-            
-            lastUpdated = new Date();
         }
         
-        // Getters
-        public String getCustomerId() { return customerId; }
-        public List<Long> getRecentTransactions() { return recentTransactions; }
-        public BigDecimal getAverageAmount() { return averageAmount; }
-        public List<String> getCommonLocations() { return commonLocations; }
-        public List<String> getCommonDevices() { return commonDevices; }
-        public Date getLastUpdated() { return lastUpdated; }
+        public int getRecentTransactionCount() {
+            // Reset count if more than 1 hour has passed
+            if (System.currentTimeMillis() - lastTransactionTime > 3600000) {
+                recentTransactionCount = 1;
+            }
+            return recentTransactionCount;
+        }
+        
+        public boolean hasGeographicAnomaly(Transaction transaction) {
+            if (transaction.getTransactionLocation() == null) return false;
+            
+            String country = (String) transaction.getTransactionLocation().get("country");
+            if (country == null) return false;
+            
+            // If this is a new country and customer has transactions in other countries
+            if (!locationCounts.containsKey(country) && locationCounts.size() > 0) {
+                return true;
+            }
+            
+            return false;
+        }
+        
+        public boolean hasDeviceAnomaly(Transaction transaction) {
+            if (transaction.getDeviceFingerprint() == null) return false;
+            
+            // If this is a new device and customer has used other devices
+            if (!deviceCounts.containsKey(transaction.getDeviceFingerprint()) && deviceCounts.size() > 0) {
+                return true;
+            }
+            
+            return false;
+        }
+        
+        public boolean hasTimeAnomaly(Transaction transaction) {
+            // Simple time anomaly: transactions between 2 AM and 6 AM
+            Date transactionTime = transaction.getCreatedAt();
+            if (transactionTime != null) {
+                int hour = transactionTime.getHours();
+                if (hour >= 2 && hour <= 6) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+    
+    /**
+     * Fraud detection result
+     */
+    public static class FraudDetectionResult {
+        private double riskScore = 0.0;
+        private java.util.List<String> alertTypes = new java.util.ArrayList<>();
+        
+        public void addAlert(String type, String description) {
+            alertTypes.add(type + ": " + description);
+        }
+        
+        public boolean isSuspicious() {
+            return riskScore >= HIGH_RISK_THRESHOLD || !alertTypes.isEmpty();
+        }
+        
+        public double getRiskScore() { return riskScore; }
+        public void setRiskScore(double riskScore) { this.riskScore = riskScore; }
+        public java.util.List<String> getAlertTypes() { return alertTypes; }
     }
 }

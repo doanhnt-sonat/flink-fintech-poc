@@ -127,9 +127,6 @@ class Account(BaseEntity):
     account_number: str
     account_type: AccountType
     currency: str = "USD"
-    balance: Decimal = Decimal('0.00')
-    available_balance: Decimal = Decimal('0.00')
-    credit_limit: Optional[Decimal] = None
     interest_rate: Optional[Decimal] = None
     is_active: bool = True
     is_frozen: bool = False
@@ -138,10 +135,6 @@ class Account(BaseEntity):
     monthly_fee: Decimal = Decimal('0.00')
     branch_code: Optional[str] = None
     routing_number: Optional[str] = None
-    
-    @validator('balance', 'available_balance')
-    def validate_balance(cls, v):
-        return round(v, 2)
 
 
 class Merchant(BaseEntity):
@@ -197,42 +190,7 @@ class Transaction(BaseEntity):
         return round(v, 2)
 
 
-class FraudAlert(BaseEntity):
-    """Fraud detection alert"""
-    customer_id: str
-    transaction_id: Optional[str] = None
-    alert_type: str
-    severity: RiskLevel
-    description: str
-    confidence_score: float = Field(ge=0, le=1)
-    rules_triggered: List[str] = Field(default_factory=list)
-    is_resolved: bool = False
-    resolution_notes: Optional[str] = None
 
-
-class ComplianceEvent(BaseEntity):
-    """Compliance and regulatory event"""
-    customer_id: str
-    transaction_id: Optional[str] = None
-    event_type: str
-    regulation: str  # AML, KYC, BSA, etc.
-    description: str
-    severity: RiskLevel
-    requires_action: bool = False
-    deadline: Optional[datetime] = None
-    assigned_to: Optional[str] = None
-    status: str = "open"  # open, investigating, resolved, closed
-
-
-class AccountBalance(BaseEntity):
-    """Account balance snapshot for time-series analysis"""
-    account_id: str
-    customer_id: str
-    balance: Decimal
-    available_balance: Decimal
-    pending_credits: Decimal = Decimal('0.00')
-    pending_debits: Decimal = Decimal('0.00')
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class CustomerSession(BaseEntity):
@@ -249,15 +207,7 @@ class CustomerSession(BaseEntity):
     transactions_count: int = 0
 
 
-class MarketData(BaseModel):
-    """Market data for investment accounts"""
-    symbol: str
-    price: Decimal
-    change: Decimal
-    change_percent: Decimal
-    volume: int
-    market_cap: Optional[Decimal] = None
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
 
 
 class OutboxEvent(BaseModel):
@@ -284,49 +234,7 @@ class OutboxEvent(BaseModel):
         })
 
 
-# Data transfer objects for API
-class TransactionSummary(BaseModel):
-    """Aggregated transaction data"""
-    customer_id: str
-    account_id: str
-    date: datetime
-    total_credits: Decimal = Decimal('0.00')
-    total_debits: Decimal = Decimal('0.00')
-    transaction_count: int = 0
-    avg_transaction_amount: Decimal = Decimal('0.00')
-    largest_transaction: Decimal = Decimal('0.00')
 
 
-class CustomerMetrics(BaseModel):
-    """Customer behavioral metrics"""
-    customer_id: str
-    calculation_date: datetime
-    total_balance: Decimal
-    monthly_spending: Decimal
-    monthly_income: Decimal
-    transaction_frequency: float
-    risk_score: float
-    engagement_score: float
-    lifetime_value: Decimal
 
 
-@dataclass
-class StreamEvent:
-    """Generic stream event wrapper"""
-    event_id: str
-    event_type: str
-    timestamp: datetime
-    partition_key: str
-    data: Dict[str, Any]
-    
-    def to_message(self) -> Dict[str, Any]:
-        """Convert to message format"""
-        return {
-            "key": self.partition_key,
-            "value": {
-                "event_id": self.event_id,
-                "event_type": self.event_type,
-                "timestamp": self.timestamp.isoformat(),
-                "data": self.data
-            }
-        }
