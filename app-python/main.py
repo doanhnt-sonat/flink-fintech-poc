@@ -112,8 +112,8 @@ def create_parser():
     
     # Global options
     parser.add_argument('--db-connection', 
-                       default='postgresql://postgres:postgres@localhost:5432/fintech_demo',
-                       help='Database connection string')
+                       default=None,
+                       help='Database connection string (defaults to config.DATABASE_URL)')
     parser.add_argument('--log-level', 
                        default='INFO',
                        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
