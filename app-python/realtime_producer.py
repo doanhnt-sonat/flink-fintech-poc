@@ -18,6 +18,7 @@ import uuid
 
 import structlog
 from enum import Enum
+from psycopg2.extras import Json as PsycoJson
 
 def _json_default_serializer(obj):
     """Serialize non-JSON types (datetime, Decimal, Enum, UUID) to JSON-friendly values."""
@@ -365,10 +366,13 @@ class RealtimeDataProducer:
                             created_at, version
                         ) VALUES (%s, %s, %s, %s, %s, %s, %s)
                     """, (
-                        outbox_event.id, outbox_event.aggregate_type, outbox_event.aggregate_id,
+                        outbox_event.id,
+                        outbox_event.aggregate_type,
+                        outbox_event.aggregate_id,
                         outbox_event.event_type.value,
-                        json.loads(json.dumps(outbox_event.payload, default=_json_default_serializer)),
-                        outbox_event.created_at, outbox_event.version
+                        PsycoJson(json.loads(json.dumps(outbox_event.payload, default=_json_default_serializer))),
+                        outbox_event.created_at,
+                        outbox_event.version
                     ))
                     conn.commit()
                     
