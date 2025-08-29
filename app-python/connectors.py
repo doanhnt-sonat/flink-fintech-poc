@@ -29,10 +29,10 @@ class DatabaseManager:
     
     def __init__(self, connection_string: str):
         self.connection_string = connection_string
+        # Ensure target database exists before creating the engine/session
+        self._ensure_database_exists()
         self.engine = create_engine(connection_string)
         self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
-        # Ensure target database exists before any operations
-        self._ensure_database_exists()
     
     def get_connection(self):
         """Get raw psycopg2 connection"""
@@ -68,13 +68,18 @@ class DatabaseManager:
                 # Not a missing DB error; re-raise
                 raise
             admin_conn_str = self._build_admin_connection_string()
-            with psycopg2.connect(admin_conn_str) as conn:
+            # Use explicit connection with autocommit to allow CREATE DATABASE
+            conn = psycopg2.connect(admin_conn_str)
+            try:
+                # Ensure autocommit for CREATE DATABASE
                 conn.autocommit = True
                 with conn.cursor() as cur:
                     cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (db_name,))
                     exists = cur.fetchone() is not None
                     if not exists:
                         cur.execute(sql.SQL("CREATE DATABASE {}" ).format(sql.Identifier(db_name)))
+            finally:
+                conn.close()
         
     def init_tables(self):
         """Initialize database tables for the fintech app"""
@@ -272,7 +277,7 @@ class DatabaseManager:
 class DebeziumConnectorManager:
     """Manages Debezium connector registration and configuration"""
     
-    def __init__(self, connect_url: str = "http://localhost:8083"):
+    def __init__(self, connect_url: str):
         self.connect_url = connect_url
     
     def register_postgres_connector(self, config: Dict[str, Any]) -> Dict[str, Any]:
@@ -322,11 +327,25 @@ class DebeziumConnectorManager:
                 logger.info("Connector registered successfully", 
                            connector=config["connector_name"])
                 return response.json()
-            else:
-                logger.error("Failed to register connector", 
-                           status_code=response.status_code,
-                           response=response.text)
-                raise Exception(f"Connector registration failed: {response.text}")
+            # If already exists, update config idempotently via PUT
+            if response.status_code == 409:
+                update_resp = requests.put(
+                    f"{self.connect_url}/connectors/{config['connector_name']}/config",
+                    json=connector_config["config"],
+                    headers={"Content-Type": "application/json"}
+                )
+                if update_resp.status_code in [200, 201]:
+                    logger.info("Connector config updated (already existed)",
+                                connector=config["connector_name"])
+                    return update_resp.json() if update_resp.text else {"message": "updated"}
+                logger.error("Failed to update existing connector",
+                             status_code=update_resp.status_code,
+                             response=update_resp.text)
+                raise Exception(f"Connector update failed: {update_resp.text}")
+            logger.error("Failed to register connector", 
+                       status_code=response.status_code,
+                       response=response.text)
+            raise Exception(f"Connector registration failed: {response.text}")
                 
         except requests.RequestException as e:
             logger.error("Error communicating with Kafka Connect", error=str(e))
@@ -385,7 +404,7 @@ def setup_fintech_connectors():
     """Setup all fintech-related Kafka connectors"""
     from config import config
     
-    connector_manager = DebeziumConnectorManager()
+    connector_manager = DebeziumConnectorManager(connect_url=config.KAFKA_CONNECT_URL)
     
     # Get connector configs from config.py
     main_config = config.CONNECTOR_CONFIGS['main']

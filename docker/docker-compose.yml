@@ -198,11 +198,11 @@ services:
     working_dir: /app
     command: ["python", "main.py", "run-all", "--rate", "5", "--num-customers", "50"]
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python", "-c", "import psycopg2; psycopg2.connect('postgresql://postgres:postgres@postgres:5432/fintech_demo').close()"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
+    # healthcheck:
+    #   test: ["CMD", "python", "-c", "import psycopg2; psycopg2.connect('postgresql://postgres:postgres@postgres:5432/fintech_demo').close()"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 5
 
 
 volumes:

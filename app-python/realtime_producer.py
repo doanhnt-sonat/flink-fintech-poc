@@ -17,6 +17,19 @@ from decimal import Decimal
 import uuid
 
 import structlog
+from enum import Enum
+
+def _json_default_serializer(obj):
+    """Serialize non-JSON types (datetime, Decimal, Enum, UUID) to JSON-friendly values."""
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, Decimal):
+        return float(obj)
+    if isinstance(obj, uuid.UUID):
+        return str(obj)
+    if isinstance(obj, Enum):
+        return obj.value
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 from models import (
     Customer, Account, Transaction, Merchant, 
@@ -353,7 +366,8 @@ class RealtimeDataProducer:
                         ) VALUES (%s, %s, %s, %s, %s, %s, %s)
                     """, (
                         outbox_event.id, outbox_event.aggregate_type, outbox_event.aggregate_id,
-                        outbox_event.event_type, json.dumps(outbox_event.payload),
+                        outbox_event.event_type.value,
+                        json.loads(json.dumps(outbox_event.payload, default=_json_default_serializer)),
                         outbox_event.created_at, outbox_event.version
                     ))
                     conn.commit()
@@ -369,13 +383,13 @@ class RealtimeDataProducer:
             transaction_event = OutboxEvent(
                 aggregate_type='Transaction',
                 aggregate_id=transaction.id,
-                event_type='transaction_created',
+                event_type=EventType.TRANSACTION_CREATED,
                 payload={
                     'event_id': str(uuid.uuid4()),
                     'timestamp': datetime.now(timezone.utc).isoformat(),
                     'customer_id': customer.id,
                     'account_id': account.id,
-                    'transaction': transaction.dict()
+                    'transaction': json.loads(json.dumps(transaction.dict(), default=_json_default_serializer))
                 }
             )
             
@@ -416,12 +430,12 @@ class RealtimeDataProducer:
                 session_outbox_event = OutboxEvent(
                     aggregate_type='CustomerSession',
                     aggregate_id=session.id,
-                    event_type='customer_session',
+                    event_type=EventType.CUSTOMER_SESSION,
                     payload={
                         'event_id': str(uuid.uuid4()),
                         'timestamp': datetime.now(timezone.utc).isoformat(),
                         'customer_id': customer.id,
-                        'session': session.dict()
+                        'session': json.loads(json.dumps(session.dict(), default=_json_default_serializer))
                     }
                 )
                 
