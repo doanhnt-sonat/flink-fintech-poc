@@ -7,7 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Deserializer for CustomerSession objects from JSON strings
+ * Deserializer for CustomerSession objects from Kafka JSON messages
  */
 public class CustomerSessionDeserializer implements MapFunction<String, CustomerSession> {
     
@@ -19,9 +19,9 @@ public class CustomerSessionDeserializer implements MapFunction<String, Customer
         try {
             return objectMapper.readValue(value, CustomerSession.class);
         } catch (Exception e) {
-            LOG.error("Failed to deserialize CustomerSession: {}", value, e);
-            // Return a default session to prevent pipeline failure
-            return new CustomerSession("error", "error", "ERROR-SESSION", "web");
+            LOG.error("Error deserializing customer session: {}", value, e);
+            // Return a default session to avoid pipeline failure
+            return new CustomerSession("error", "unknown", "unknown", "unknown");
         }
     }
 }

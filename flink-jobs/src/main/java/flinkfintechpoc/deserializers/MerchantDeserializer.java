@@ -1,13 +1,13 @@
 package flinkfintechpoc.deserializers;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import flinkfintechpoc.models.Merchant;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Deserializer for Merchant objects from JSON strings
+ * Merchant Deserializer - Converts JSON strings to Merchant objects
  */
 public class MerchantDeserializer implements MapFunction<String, Merchant> {
     
@@ -19,9 +19,8 @@ public class MerchantDeserializer implements MapFunction<String, Merchant> {
         try {
             return objectMapper.readValue(value, Merchant.class);
         } catch (Exception e) {
-            LOG.error("Failed to deserialize Merchant: {}", value, e);
-            // Return a default merchant to prevent pipeline failure
-            return new Merchant("error", "Unknown Merchant", "Unknown", "0000");
+            LOG.error("Error deserializing Merchant: {}", value, e);
+            throw new RuntimeException("Failed to deserialize Merchant", e);
         }
     }
 }
