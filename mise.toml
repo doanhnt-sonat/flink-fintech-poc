@@ -36,17 +36,10 @@ run = "start http://localhost:8081"
 description = "Open pgAdmin (port 8082)"
 run = "start http://localhost:8082"
 
-# =============================================================================
-# PYTHON APP
-# =============================================================================
+[tasks."open:grafana"]
+description = "Open Grafana (port 3000)"
+run = "start http://localhost:3000"
 
-[tasks."python:start"]
-description = "Start real-time data producer"
-run = "cd app-python && python main.py run-all --rate 5 --num-customers 50"
-
-[tasks."python:setup"]
-description = "Setup Python app and connectors"
-run = "cd app-python && python main.py setup-connectors"
 
 # =============================================================================
 # FLINK JOBS
@@ -77,10 +70,35 @@ run = "docker compose -f docker/docker-compose.yml exec -it postgres psql -U pos
 # =============================================================================
 
 [tasks."start:all"]
-description = "Complete startup: start services, setup app, run Flink job"
-depends = ["docker:start", "python:setup", "python:start", "flink:build", "flink:run"]
+description = "Complete startup: start services, build and run Flink job"
+depends = ["docker:start", "flink:build", "flink:run"]
 run = "echo 'All services started! Check: Kafka UI (8080), Flink UI (8081), pgAdmin (8082)'"
 
 [tasks."status"]
 description = "Show project status"
 run = "echo '=== DOCKER ===' && docker compose -f docker/docker-compose.yml ps && echo '=== FLINK JOBS ===' && docker compose -f docker/docker-compose.yml exec jobmanager flink list"
+
+# =============================================================================
+# PYTHON APP
+# =============================================================================
+
+[tasks."python:container:stop"]
+description = "Gracefully stop producer inside container (without stopping container)"
+run = "docker compose -f docker/docker-compose.yml stop fintech-python-app"
+
+[tasks."python:producer:start"]
+description = "Start producer inside container"
+run = "docker compose -f docker/docker-compose.yml exec -d fintech-python-app python main.py start-producer --rate 5 --num-customers 50"
+
+[tasks."python:container:start"]
+description = "Start only the Python app container"
+run = "docker compose -f docker/docker-compose.yml up -d fintech-python-app"
+
+[tasks."python:producer:term"]
+description = "Send SIGTERM to container main process (no shell quoting)"
+run = "docker compose -f docker/docker-compose.yml kill -s SIGTERM fintech-python-app"
+
+
+[tasks."docker:volume:clean"]
+description = "Clean up all Docker volumes"
+run = "docker volume rm $(docker volume ls -q)"

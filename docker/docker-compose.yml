@@ -19,6 +19,7 @@ services:
       KAFKA_LISTENERS: PLAINTEXT://kafka:29092,CONTROLLER://kafka:29093,PLAINTEXT_HOST://0.0.0.0:9092
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
@@ -111,8 +112,8 @@ services:
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
-      GF_INSTALL_PLUGINS: grafana-kafka-datasource
-      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: grafana-kafka-datasource
+      GF_INSTALL_PLUGINS: hamedkarbasi93-kafka-datasource
+      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: hamedkarbasi93-kafka-datasource
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning
@@ -197,7 +198,7 @@ services:
       - ../app-python:/app
     working_dir: /app
     command: ["python", "main.py", "run-all", "--rate", "5", "--num-customers", "50"]
-    restart: unless-stopped
+    restart: "no"
     # healthcheck:
     #   test: ["CMD", "python", "-c", "import psycopg2; psycopg2.connect('postgresql://postgres:postgres@postgres:5432/fintech_demo').close()"]
     #   interval: 30s

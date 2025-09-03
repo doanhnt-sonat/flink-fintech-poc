@@ -71,6 +71,7 @@ class RealtimeDataProducer:
         self.customers: List[Customer] = []
         self.accounts: List[Account] = []
         self.customer_accounts: Dict[str, List[Account]] = {}
+        self.merchants: List[Merchant] = []
         
         # Progressive time management
         # Load or initialize progressive time from file
@@ -178,6 +179,8 @@ class RealtimeDataProducer:
             # Load existing customers and accounts from database
             self.customers = await self._load_existing_customers()
             self.accounts = await self._load_existing_accounts()
+            self.merchants = await self._load_existing_merchants()
+            self.merchants = await self._load_existing_merchants()
             
             # Build customer -> accounts mapping
             for account in self.accounts:
@@ -187,14 +190,17 @@ class RealtimeDataProducer:
                 
             logger.info("Loaded existing data", 
                        customers=len(self.customers),
-                       accounts=len(self.accounts))
+                       accounts=len(self.accounts),
+                       merchants=len(self.merchants))
         else:
             logger.info("Database is empty, initializing tables and generating sample data...")
             # Only initialize tables when we need to create new data
             self.db_manager.init_tables()
             
-            # Generate initial customer and account data only (no sessions/transactions)
+            # Generate initial customer, account and merchant data only (no sessions/transactions)
             scenario_data = self.data_generator.generate_realistic_scenario(self.num_customers)
+            # Use the generator's internal merchant pool
+            self.merchants = self.data_generator.merchants
             
             self.customers = scenario_data['customers']
             self.accounts = scenario_data['accounts']
@@ -207,12 +213,13 @@ class RealtimeDataProducer:
                     self.customer_accounts[account.customer_id] = []
                 self.customer_accounts[account.customer_id].append(account)
             
-            # Store initial data in database
+            # Store initial data in database (including merchants)
             await self._store_initial_data()
             
             logger.info("Generated and stored new sample data", 
                        customers=len(self.customers),
-                       accounts=len(self.accounts))
+                       accounts=len(self.accounts),
+                       merchants=len(self.merchants))
     
     async def _check_database_has_data(self) -> bool:
         """Check if database already has data by checking if customers table has any records"""
@@ -326,10 +333,26 @@ class RealtimeDataProducer:
             raise
     
     async def _store_initial_data(self):
-        """Store initial customer and account data in database"""
+        """Store initial customer, account and merchant data in database"""
         try:
             with self.db_manager.get_connection() as conn:
                 with conn.cursor() as cursor:
+                    # Store merchants first so foreign keys in transactions can reference them later
+                    for merchant in self.merchants:
+                        cursor.execute("""
+                            INSERT INTO merchants (
+                                id, name, business_type, mcc_code, address, phone, website,
+                                tax_id, is_active, created_at, updated_at, version
+                            ) VALUES (
+                                %s, %s, %s, %s, %s, %s, %s,
+                                %s, %s, %s, %s, %s
+                            ) ON CONFLICT (id) DO NOTHING
+                        """, (
+                            merchant.id, merchant.name, merchant.business_type, merchant.mcc_code,
+                            json.dumps(merchant.address.dict()), merchant.phone, merchant.website,
+                            merchant.tax_id, merchant.is_active, merchant.created_at, merchant.updated_at,
+                            merchant.version
+                        ))
                     # Store customers
                     for customer in self.customers:
                         cursor.execute("""
@@ -496,6 +519,43 @@ class RealtimeDataProducer:
             logger.error("Failed to store transaction", error=str(e), transaction_id=transaction.id)
             raise
     
+    async def _load_existing_merchants(self) -> List[Merchant]:
+        """Load existing merchants from database"""
+        try:
+            with self.db_manager.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT id, name, business_type, mcc_code, address, phone, website, tax_id,
+                               is_active, created_at, updated_at, version
+                        FROM merchants
+                    """)
+                    merchants: List[Merchant] = []
+                    for row in cursor.fetchall():
+                        try:
+                            merchant = Merchant(
+                                id=row[0],
+                                name=row[1],
+                                business_type=row[2],
+                                mcc_code=row[3],
+                                address=(json.loads(row[4]) if row[4] else None),
+                                phone=row[5],
+                                website=row[6],
+                                tax_id=row[7],
+                                is_active=row[8],
+                            )
+                            # Preserve timestamps/version if needed
+                            merchant.created_at = row[9]
+                            merchant.updated_at = row[10]
+                            merchant.version = row[11] or 1
+                            merchants.append(merchant)
+                        except Exception as e:
+                            logger.warning("Failed to parse merchant row", row=row, error=str(e))
+                            continue
+                    return merchants
+        except Exception as e:
+            logger.error("Failed to load existing merchants", error=str(e))
+            raise
+
 
     
 

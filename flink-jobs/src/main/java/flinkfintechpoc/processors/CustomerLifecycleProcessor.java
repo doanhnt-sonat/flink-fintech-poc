@@ -10,8 +10,8 @@ import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.common.typeinfo.TypeHint;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
-import org.apache.flink.configuration.Configuration;
-import org.apache.flink.streaming.api.functions.co.BroadcastProcessFunction;
+import org.apache.flink.api.common.functions.OpenContext;
+import org.apache.flink.streaming.api.functions.co.KeyedBroadcastProcessFunction;
 import org.apache.flink.util.Collector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,7 +27,7 @@ import java.util.Map;
  * Input: EnrichedTransaction + CustomerSession (broadcast)
  * Output: CustomerLifecycleMetrics
  */
-public class CustomerLifecycleProcessor extends BroadcastProcessFunction<EnrichedTransaction, CustomerSession, CustomerLifecycleMetrics> {
+public class CustomerLifecycleProcessor extends KeyedBroadcastProcessFunction<String, EnrichedTransaction, CustomerSession, CustomerLifecycleMetrics> {
     
     private static final Logger LOG = LoggerFactory.getLogger(CustomerLifecycleProcessor.class);
     
@@ -50,7 +50,7 @@ public class CustomerLifecycleProcessor extends BroadcastProcessFunction<Enriche
     private ValueState<Map<String, Object>> sessionMetrics;
     
     @Override
-    public void open(Configuration parameters) throws Exception {
+    public void open(OpenContext openContext) throws Exception {
         // Initialize state descriptors for customer lifecycle tracking
         ValueStateDescriptor<Map<String, Object>> profileDescriptor = new ValueStateDescriptor<>(
             "customer-profile",

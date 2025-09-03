@@ -53,7 +53,12 @@ class Config:
             'topic_prefix': 'fintech',
             'table_include': 'public.customers,public.accounts,public.transactions,public.merchants,public.customer_sessions',
             'slot_name': 'debezium_main',
-            'publication_name': 'dbz_main'
+            'publication_name': 'dbz_main',
+            # Enable Debezium unwrap SMT so topics contain the row (after)
+            'transforms': 'unwrap',
+            'transforms.unwrap.type': 'io.debezium.transforms.ExtractNewRecordState',
+            'transforms.unwrap.drop.tombstones': 'true',
+            'transforms.unwrap.delete.handling.mode': 'rewrite'
         }
     }
 

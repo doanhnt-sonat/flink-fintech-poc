@@ -6,8 +6,8 @@ import flinkfintechpoc.models.FraudDetectionResult;
 import org.apache.flink.api.common.state.*;
 import org.apache.flink.api.common.typeinfo.TypeHint;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
-import org.apache.flink.configuration.Configuration;
-import org.apache.flink.streaming.api.functions.co.BroadcastProcessFunction;
+import org.apache.flink.api.common.functions.OpenContext;
+import org.apache.flink.streaming.api.functions.co.KeyedBroadcastProcessFunction;
 
 import org.apache.flink.util.Collector;
 import org.slf4j.Logger;
@@ -21,7 +21,7 @@ import java.util.*;
  * Covers: CEP patterns, State management, Custom triggers, Stream joins simulation
  * Analyzes fraud patterns for each customer using transaction and account data
  */
-public class CustomerFraudDetectionProcessor extends BroadcastProcessFunction<Transaction, Account, FraudDetectionResult> {
+public class CustomerFraudDetectionProcessor extends KeyedBroadcastProcessFunction<String, Transaction, Account, FraudDetectionResult> {
     
     private static final Logger LOG = LoggerFactory.getLogger(CustomerFraudDetectionProcessor.class);
     
@@ -52,7 +52,7 @@ public class CustomerFraudDetectionProcessor extends BroadcastProcessFunction<Tr
     private static final long RAPID_TRANSACTION_THRESHOLD = 60000; // 1 minute
     
     @Override
-    public void open(Configuration parameters) throws Exception {
+    public void open(OpenContext openContext) throws Exception {
         // Initialize state descriptors for complex fraud detection
         ValueStateDescriptor<List<Transaction>> transactionsDescriptor = new ValueStateDescriptor<>(
             "recent-transactions",

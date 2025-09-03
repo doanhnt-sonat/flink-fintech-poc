@@ -13,7 +13,7 @@
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <flink.version>1.18.1</flink.version>
+        <flink.version>2.0.0</flink.version>
         <target.java.version>11</target.java.version>
         <scala.binary.version>2.12</scala.binary.version>
         <maven.compiler.source>${target.java.version}</maven.compiler.source>
@@ -35,6 +35,7 @@
         </repository>
     </repositories>
 
+    
     <dependencies>
         <!-- Apache Flink dependencies -->
         <dependency>
@@ -52,7 +53,14 @@
         <dependency>
             <groupId>org.apache.flink</groupId>
             <artifactId>flink-connector-kafka</artifactId>
-            <version>3.0.2-1.18</version>
+            <version>4.0.0-2.0</version>
+        </dependency>
+
+        <!-- Flink Connector Base (DeliveryGuarantee, sink v2 APIs) -->
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-connector-base</artifactId>
+            <version>${flink.version}</version>
         </dependency>
 
         <!-- Flink SQL dependencies -->
@@ -77,13 +85,6 @@
             <version>${flink.version}</version>
         </dependency>
 
-        <!-- Jackson for JSON processing -->
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-            <version>2.15.2</version>
-        </dependency>
-        
         <!-- Test dependencies -->
         <dependency>
             <groupId>junit</groupId>
@@ -169,7 +170,7 @@
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                                    <mainClass>flinkfintechpoc.jobs.FintechAnalyticsJob</mainClass>
+                                    <mainClass>flinkfintechpoc.jobs.CustomerDebeziumJob</mainClass>
                                 </transformer>
                             </transformers>
                         </configuration>

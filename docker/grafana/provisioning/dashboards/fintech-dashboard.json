@@ -13,7 +13,7 @@
         "targets": [
           {
             "refId": "A",
-            "expr": "fintech.fraud_alerts",
+            "expr": "fintech.customer_fraud_alerts",
             "legendFormat": "Fraud Alerts"
           }
         ],
@@ -38,8 +38,8 @@
         "targets": [
           {
             "refId": "A",
-            "expr": "fintech.transaction_metrics",
-            "legendFormat": "Transactions"
+            "expr": "fintech.customer_transaction_metrics",
+            "legendFormat": "Transaction Metrics"
           }
         ]
       },
@@ -50,8 +50,8 @@
         "targets": [
           {
             "refId": "A",
-            "expr": "fintech.risk_analytics",
-            "legendFormat": "Risk Score"
+            "expr": "fintech.customer_lifecycle",
+            "legendFormat": "Customer Lifecycle"
           }
         ],
         "fieldConfig": {
@@ -67,6 +67,18 @@
             }
           }
         }
+      },
+      {
+        "id": 4,
+        "title": "Merchant Performance",
+        "type": "timeseries",
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "fintech.merchant_performance",
+            "legendFormat": "Merchant Performance"
+          }
+        ]
       }
     ],
     "time": {

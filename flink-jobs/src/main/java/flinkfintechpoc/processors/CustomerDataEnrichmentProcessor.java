@@ -9,7 +9,7 @@ import org.apache.flink.api.common.state.ReadOnlyBroadcastState;
 import org.apache.flink.api.common.typeinfo.TypeHint;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 
-import org.apache.flink.streaming.api.functions.co.BroadcastProcessFunction;
+import org.apache.flink.streaming.api.functions.co.KeyedBroadcastProcessFunction;
 import org.apache.flink.util.Collector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,7 +20,7 @@ import org.slf4j.LoggerFactory;
  * Input: Transaction + Customer (broadcast)
  * Output: EnrichedTransaction
  */
-public class CustomerDataEnrichmentProcessor extends BroadcastProcessFunction<Transaction, Customer, EnrichedTransaction> {
+public class CustomerDataEnrichmentProcessor extends KeyedBroadcastProcessFunction<String, Transaction, Customer, EnrichedTransaction> {
     
     private static final Logger LOG = LoggerFactory.getLogger(CustomerDataEnrichmentProcessor.class);
     

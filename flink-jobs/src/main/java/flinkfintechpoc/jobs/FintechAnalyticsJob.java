@@ -1,7 +1,6 @@
 package flinkfintechpoc.jobs;
 
 import flinkfintechpoc.models.*;
-import flinkfintechpoc.deserializers.*;
 import flinkfintechpoc.processors.*;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
@@ -9,10 +8,13 @@ import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 import org.apache.flink.connector.kafka.sink.KafkaSink;
 import org.apache.flink.connector.kafka.sink.KafkaRecordSerializationSchema;
+import org.apache.flink.connector.base.DeliveryGuarantee;
+import java.util.Properties;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows;
-import org.apache.flink.streaming.api.windowing.time.Time;
+import java.time.Duration;
+import org.apache.flink.formats.json.JsonDeserializationSchema;
 
 /**
  * Flink Job for Real-time Fintech Analytics - 4 Core Processors
@@ -36,11 +38,11 @@ import org.apache.flink.streaming.api.windowing.time.Time;
 public class FintechAnalyticsJob {
     
     // Kafka topics
-    private static final String TRANSACTIONS_TOPIC = "fintech.transactions";
-    private static final String CUSTOMERS_TOPIC = "fintech.customers";
-    private static final String MERCHANTS_TOPIC = "fintech.merchants";
-    private static final String CUSTOMER_SESSIONS_TOPIC = "fintech.customer_sessions";
-    private static final String ACCOUNTS_TOPIC = "fintech.accounts";
+    private static final String TRANSACTIONS_TOPIC = "fintech.public.transactions";
+    private static final String CUSTOMERS_TOPIC = "fintech.public.customers";
+    private static final String MERCHANTS_TOPIC = "fintech.public.merchants";
+    private static final String CUSTOMER_SESSIONS_TOPIC = "fintech.public.customer_sessions";
+    private static final String ACCOUNTS_TOPIC = "fintech.public.accounts";
     
     public static void main(String[] args) throws Exception {
         // Set up the streaming execution environment
@@ -49,38 +51,28 @@ public class FintechAnalyticsJob {
         // Enable checkpointing for fault tolerance
         env.enableCheckpointing(10000);
         
-        // Create Kafka sources
-        KafkaSource<String> transactionSource = createKafkaSource(TRANSACTIONS_TOPIC);
-        KafkaSource<String> customerSource = createKafkaSource(CUSTOMERS_TOPIC);
-        KafkaSource<String> merchantSource = createKafkaSource(MERCHANTS_TOPIC);
-        KafkaSource<String> customerSessionSource = createKafkaSource(CUSTOMER_SESSIONS_TOPIC);
-        KafkaSource<String> accountSource = createKafkaSource(ACCOUNTS_TOPIC);
+        // Create Kafka sources (JSON → POJO via JsonDeserializationSchema)
+        KafkaSource<Transaction> transactionSource = createJsonKafkaSource(TRANSACTIONS_TOPIC, Transaction.class);
+        KafkaSource<Customer> customerSource = createJsonKafkaSource(CUSTOMERS_TOPIC, Customer.class);
+        KafkaSource<Merchant> merchantSource = createJsonKafkaSource(MERCHANTS_TOPIC, Merchant.class);
+        KafkaSource<CustomerSession> customerSessionSource = createJsonKafkaSource(CUSTOMER_SESSIONS_TOPIC, CustomerSession.class);
+        KafkaSource<Account> accountSource = createJsonKafkaSource(ACCOUNTS_TOPIC, Account.class);
 
-        // Create data streams
+        // Create data streams (no extra map step needed)
         DataStream<Transaction> transactionStream = env
-            .fromSource(transactionSource, WatermarkStrategy.noWatermarks(), "Transactions")
-            .map(new TransactionDeserializer())
-            .name("Deserialize Transactions");
-            
+            .fromSource(transactionSource, WatermarkStrategy.noWatermarks(), "Transactions");
+        
         DataStream<Customer> customerStream = env
-            .fromSource(customerSource, WatermarkStrategy.noWatermarks(), "Customers")
-            .map(new CustomerDeserializer())
-            .name("Deserialize Customers");
-            
+            .fromSource(customerSource, WatermarkStrategy.noWatermarks(), "Customers");
+        
         DataStream<Merchant> merchantStream = env
-            .fromSource(merchantSource, WatermarkStrategy.noWatermarks(), "Merchants")
-            .map(new MerchantDeserializer())
-            .name("Deserialize Merchants");
-            
+            .fromSource(merchantSource, WatermarkStrategy.noWatermarks(), "Merchants");
+        
         DataStream<CustomerSession> customerSessionStream = env
-            .fromSource(customerSessionSource, WatermarkStrategy.noWatermarks(), "Customer Sessions")
-            .map(new CustomerSessionDeserializer())
-            .name("Deserialize Customer Sessions");
-            
+            .fromSource(customerSessionSource, WatermarkStrategy.noWatermarks(), "Customer Sessions");
+        
         DataStream<Account> accountStream = env
-            .fromSource(accountSource, WatermarkStrategy.noWatermarks(), "Accounts")
-            .map(new AccountDeserializer())
-            .name("Deserialize Accounts");
+            .fromSource(accountSource, WatermarkStrategy.noWatermarks(), "Accounts");
         
         // ============================================================================
         // 4 CORE PROCESSORS - Covering All Flink Techniques
@@ -113,7 +105,7 @@ public class FintechAnalyticsJob {
         // Techniques: Windowed Processing, State Management, Custom Triggers
         DataStream<TransactionMetrics> customerTransactionMetricsStream = transactionStream
             .keyBy(Transaction::getCustomerId)
-            .window(TumblingEventTimeWindows.of(Time.minutes(5)))
+            .window(TumblingEventTimeWindows.of(Duration.ofSeconds(30)))
             .process(new CustomerTransactionMetricsProcessor())
             .name("Customer Transaction Metrics Analysis");
         
@@ -158,23 +150,32 @@ public class FintechAnalyticsJob {
         env.execute("Fintech Real-time Analytics Job - 4 Core Processors");
     }
     
-    private static KafkaSource<String> createKafkaSource(String topic) {
-        return KafkaSource.<String>builder()
+    
+    private static <T> KafkaSource<T> createJsonKafkaSource(String topic, Class<T> cls) {
+        return KafkaSource.<T>builder()
             .setBootstrapServers("kafka:29092")
             .setTopics(topic)
             .setGroupId("flink-analytics-group")
             .setStartingOffsets(OffsetsInitializer.latest())
-            .setValueOnlyDeserializer(new SimpleStringSchema())
+            .setValueOnlyDeserializer(new JsonDeserializationSchema<>(cls))
             .build();
     }
     
     private static KafkaSink<String> createKafkaSink(String topic) {
+        Properties kafkaProps = new Properties();
+        kafkaProps.put("transaction.timeout.ms", "300000"); // 5 minutes
+
         return KafkaSink.<String>builder()
             .setBootstrapServers("kafka:29092")
-            .setRecordSerializer(KafkaRecordSerializationSchema.builder()
-                .setTopic(topic)
-                .setValueSerializationSchema(new SimpleStringSchema())
-                .build())
+            .setRecordSerializer(
+                KafkaRecordSerializationSchema.builder()
+                    .setTopic(topic)
+                    .setValueSerializationSchema(new SimpleStringSchema())
+                    .build()
+            )
+            .setKafkaProducerConfig(kafkaProps)
+            .setTransactionalIdPrefix(topic + "-tx")
+            .setDeliveryGuarantee(DeliveryGuarantee.EXACTLY_ONCE)
             .build();
     }
 }

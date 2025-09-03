@@ -252,7 +252,11 @@ class DebeziumConnectorManager:
                 "key.converter.schemas.enable": "false",
                 "value.converter": "org.apache.kafka.connect.json.JsonConverter",
                 "value.converter.schemas.enable": "false",
-                "transforms": config.get("transforms", ""),
+                # Ensure Debezium unwrap SMT enabled by default; allow override via config
+                "transforms": config.get("transforms", "unwrap"),
+                "transforms.unwrap.type": config.get("transforms.unwrap.type", "io.debezium.transforms.ExtractNewRecordState"),
+                "transforms.unwrap.drop.tombstones": config.get("transforms.unwrap.drop.tombstones", "true"),
+                "transforms.unwrap.delete.handling.mode": config.get("transforms.unwrap.delete.handling.mode", "rewrite"),
                 "slot.name": config.get("slot_name", f"debezium_{config['connector_name']}"),
                 "publication.name": config.get("publication_name", f"dbz_{config['connector_name']}")
             }

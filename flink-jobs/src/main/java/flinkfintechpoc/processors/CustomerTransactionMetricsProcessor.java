@@ -5,7 +5,7 @@ import flinkfintechpoc.models.TransactionMetrics;
 import org.apache.flink.api.common.state.*;
 import org.apache.flink.api.common.typeinfo.TypeHint;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
-import org.apache.flink.configuration.Configuration;
+import org.apache.flink.api.common.functions.OpenContext;
 import org.apache.flink.streaming.api.functions.windowing.ProcessWindowFunction;
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
 import org.apache.flink.util.Collector;
@@ -34,7 +34,7 @@ public class CustomerTransactionMetricsProcessor extends ProcessWindowFunction<T
     private ValueState<Map<String, Integer>> deviceCounts;
     
     @Override
-    public void open(Configuration parameters) throws Exception {
+    public void open(OpenContext openContext) throws Exception {
         // Initialize window state descriptors
         ValueStateDescriptor<BigDecimal> totalAmountDescriptor = new ValueStateDescriptor<>(
             "total-amount",
