@@ -170,27 +170,158 @@ class RealtimeDataProducer:
         """Initialize the producer with base data"""
         logger.info("Initializing realtime data producer...")
         
-        # Initialize database tables
-        self.db_manager.init_tables()
+        # Check if database already has data by checking if customers table has any records
+        has_existing_data = await self._check_database_has_data()
         
-        # Generate initial customer and account data
-        scenario_data = self.data_generator.generate_realistic_scenario(self.num_customers)
-        
-        self.customers = scenario_data['customers']
-        self.accounts = scenario_data['accounts']
-        
-        # Build customer -> accounts mapping
-        for account in self.accounts:
-            if account.customer_id not in self.customer_accounts:
-                self.customer_accounts[account.customer_id] = []
-            self.customer_accounts[account.customer_id].append(account)
-        
-        # Store initial data in database
-        await self._store_initial_data()
-        
-        logger.info("Producer initialized", 
-                   customers=len(self.customers),
-                   accounts=len(self.accounts))
+        if has_existing_data:
+            logger.info("Database already has data, loading existing data...")
+            # Load existing customers and accounts from database
+            self.customers = await self._load_existing_customers()
+            self.accounts = await self._load_existing_accounts()
+            
+            # Build customer -> accounts mapping
+            for account in self.accounts:
+                if account.customer_id not in self.customer_accounts:
+                    self.customer_accounts[account.customer_id] = []
+                self.customer_accounts[account.customer_id].append(account)
+                
+            logger.info("Loaded existing data", 
+                       customers=len(self.customers),
+                       accounts=len(self.accounts))
+        else:
+            logger.info("Database is empty, initializing tables and generating sample data...")
+            # Only initialize tables when we need to create new data
+            self.db_manager.init_tables()
+            
+            # Generate initial customer and account data
+            scenario_data = self.data_generator.generate_realistic_scenario(self.num_customers)
+            
+            self.customers = scenario_data['customers']
+            self.accounts = scenario_data['accounts']
+            
+            # Build customer -> accounts mapping
+            for account in self.accounts:
+                if account.customer_id not in self.customer_accounts:
+                    self.customer_accounts[account.customer_id] = []
+                self.customer_accounts[account.customer_id].append(account)
+            
+            # Store initial data in database
+            await self._store_initial_data()
+            
+            logger.info("Generated and stored new sample data", 
+                       customers=len(self.customers),
+                       accounts=len(self.accounts))
+    
+    async def _check_database_has_data(self) -> bool:
+        """Check if database already has data by checking if customers table has any records"""
+        try:
+            with self.db_manager.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("SELECT COUNT(*) FROM customers")
+                    count = cursor.fetchone()[0]
+                    return count > 0
+        except Exception as e:
+            logger.warning("Failed to check database data, assuming empty", error=str(e))
+            return False
+    
+    async def _load_existing_customers(self) -> List[Customer]:
+        """Load existing customers from database"""
+        try:
+            with self.db_manager.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT id, first_name, last_name, email, phone, date_of_birth,
+                               ssn, address, tier, risk_score, kyc_status, is_active,
+                               credit_score, annual_income, employment_status, 
+                               onboarding_channel, referral_code, preferences, tags,
+                               created_at, updated_at, version
+                        FROM customers
+                    """)
+                    rows = cursor.fetchall()
+                    customers = []
+                    for row in rows:
+                        try:
+                            # Convert database row to Customer object
+                            customer_data = {
+                                'id': row[0],
+                                'first_name': row[1],
+                                'last_name': row[2],
+                                'email': row[3],
+                                'phone': row[4],
+                                'date_of_birth': row[5],
+                                'ssn': row[6],
+                                'address': json.loads(row[7]) if row[7] else {},
+                                'tier': CustomerTier(row[8]) if row[8] else CustomerTier.BASIC,
+                                'risk_score': float(row[9]) if row[9] else 0.0,
+                                'kyc_status': row[10],
+                                'is_active': row[11],
+                                'credit_score': row[12],
+                                'annual_income': float(row[13]) if row[13] else 0.0,
+                                'employment_status': row[14],
+                                'onboarding_channel': row[15],
+                                'referral_code': row[16],
+                                'preferences': json.loads(row[17]) if row[17] else {},
+                                'tags': json.loads(row[18]) if row[18] else [],
+                                'created_at': row[19],
+                                'updated_at': row[20],
+                                'version': row[21] or 1
+                            }
+                            customers.append(Customer(**customer_data))
+                        except Exception as e:
+                            logger.warning("Failed to parse customer row", row=row, error=str(e))
+                            continue
+                    return customers
+        except Exception as e:
+            logger.error("Failed to load existing customers", error=str(e))
+            raise
+    
+    async def _load_existing_accounts(self) -> List[Account]:
+        """Load existing accounts from database"""
+        try:
+            with self.db_manager.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT id, customer_id, account_number, account_type, currency,
+                               balance, available_balance, credit_limit, interest_rate, 
+                               is_active, is_frozen, overdraft_protection, 
+                               minimum_balance, monthly_fee, branch_code, routing_number, 
+                               created_at, updated_at, version
+                        FROM accounts
+                    """)
+                    rows = cursor.fetchall()
+                    accounts = []
+                    for row in rows:
+                        try:
+                            # Convert database row to Account object
+                            account_data = {
+                                'id': row[0],
+                                'customer_id': row[1],
+                                'account_number': row[2],
+                                'account_type': AccountType(row[3]) if row[3] else AccountType.CHECKING,
+                                'currency': row[4],
+                                'balance': float(row[5]) if row[5] else 0.0,
+                                'available_balance': float(row[6]) if row[6] else 0.0,
+                                'credit_limit': float(row[7]) if row[7] else 0.0,
+                                'interest_rate': float(row[8]) if row[8] else 0.0,
+                                'is_active': row[9],
+                                'is_frozen': row[10],
+                                'overdraft_protection': row[11],
+                                'minimum_balance': float(row[12]) if row[12] else 0.0,
+                                'monthly_fee': float(row[13]) if row[13] else 0.0,
+                                'branch_code': row[14],
+                                'routing_number': row[15],
+                                'created_at': row[16],
+                                'updated_at': row[17],
+                                'version': row[18] or 1
+                            }
+                            accounts.append(Account(**account_data))
+                        except Exception as e:
+                            logger.warning("Failed to parse account row", row=row, error=str(e))
+                            continue
+                    return accounts
+        except Exception as e:
+            logger.error("Failed to load existing accounts", error=str(e))
+            raise
     
     async def _store_initial_data(self):
         """Store initial customer and account data in database"""

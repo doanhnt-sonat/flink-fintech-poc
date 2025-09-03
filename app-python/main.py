@@ -7,7 +7,6 @@ import asyncio
 import sys
 import argparse
 import logging
-from typing import Optional
 
 import structlog
 

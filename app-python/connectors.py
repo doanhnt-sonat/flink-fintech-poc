@@ -12,8 +12,6 @@ from decimal import Decimal
 
 import requests
 import psycopg2
-from psycopg2 import sql
-from psycopg2.extras import RealDictCursor
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 import structlog

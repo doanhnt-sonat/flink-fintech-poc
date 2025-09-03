@@ -3,14 +3,13 @@ Configuration settings for the fintech Python app
 """
 
 import os
-from typing import Dict, Any
 
 
 class Config:
     """Configuration class with environment variable support"""
     
     # Database settings
-    DATABASE_HOST = os.getenv('DATABASE_HOST', 'localhost')
+    DATABASE_HOST = os.getenv('DATABASE_HOST', 'postgres')
     DATABASE_PORT = int(os.getenv('DATABASE_PORT', '5432'))
     DATABASE_NAME = os.getenv('DATABASE_NAME', 'fintech_demo')
     DATABASE_USER = os.getenv('DATABASE_USER', 'postgres')
@@ -21,7 +20,7 @@ class Config:
         return f"postgresql://{self.DATABASE_USER}:{self.DATABASE_PASSWORD}@{self.DATABASE_HOST}:{self.DATABASE_PORT}/{self.DATABASE_NAME}"
     
     # Kafka Connect settings (for Debezium connector registration)
-    KAFKA_CONNECT_URL = os.getenv('KAFKA_CONNECT_URL', 'http://localhost:8083')
+    KAFKA_CONNECT_URL = os.getenv('KAFKA_CONNECT_URL', 'http://kafka-connect:8083')
     
     # Producer settings
     PRODUCTION_RATE = int(os.getenv('PRODUCTION_RATE', '5'))  # transactions per second
