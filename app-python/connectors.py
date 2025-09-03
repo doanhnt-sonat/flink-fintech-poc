@@ -257,6 +257,8 @@ class DebeziumConnectorManager:
                 "transforms.unwrap.type": config.get("transforms.unwrap.type", "io.debezium.transforms.ExtractNewRecordState"),
                 "transforms.unwrap.drop.tombstones": config.get("transforms.unwrap.drop.tombstones", "true"),
                 "transforms.unwrap.delete.handling.mode": config.get("transforms.unwrap.delete.handling.mode", "rewrite"),
+                # Emit DECIMAL as numeric string to avoid base64 precise encoding in JSON
+                "decimal.handling.mode": config.get("decimal_handling_mode", "string"),
                 "slot.name": config.get("slot_name", f"debezium_{config['connector_name']}"),
                 "publication.name": config.get("publication_name", f"dbz_{config['connector_name']}")
             }

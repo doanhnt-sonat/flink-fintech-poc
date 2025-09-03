@@ -15,6 +15,8 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows;
 import java.time.Duration;
 import org.apache.flink.formats.json.JsonDeserializationSchema;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Flink Job for Real-time Fintech Analytics - 4 Core Processors
@@ -36,6 +38,7 @@ import org.apache.flink.formats.json.JsonDeserializationSchema;
  * - Cascade Pattern for Multi-step Enrichment
  */
 public class FintechAnalyticsJob {
+    private static final Logger LOG = LoggerFactory.getLogger(FintechAnalyticsJob.class);
     
     // Kafka topics
     private static final String TRANSACTIONS_TOPIC = "fintech.public.transactions";
@@ -61,6 +64,17 @@ public class FintechAnalyticsJob {
         // Create data streams (no extra map step needed)
         DataStream<Transaction> transactionStream = env
             .fromSource(transactionSource, WatermarkStrategy.noWatermarks(), "Transactions");
+
+        // Log sample of incoming transactions to verify data flow
+        DataStream<Transaction> transactionStreamLogged = transactionStream
+            .map(t -> {
+                if (Math.random() < 0.5) {
+                    LOG.info("RX Transaction id={}, customerId={}, merchantId={}, amount={}",
+                            t.getId(), t.getCustomerId(), t.getMerchantId(), t.getAmount());
+                }
+                return t;
+            })
+            .name("Log Transactions");
         
         DataStream<Customer> customerStream = env
             .fromSource(customerSource, WatermarkStrategy.noWatermarks(), "Customers");
@@ -78,9 +92,17 @@ public class FintechAnalyticsJob {
         // 4 CORE PROCESSORS - Covering All Flink Techniques
         // ============================================================================
         
+        // Prepare filtered streams to avoid null keys
+        DataStream<Transaction> transactionsByCustomer = transactionStreamLogged
+            .filter(t -> t.getCustomerId() != null)
+            .name("Filter Transactions with customerId");
+        DataStream<Transaction> transactionsByMerchant = transactionStreamLogged
+            .filter(t -> t.getMerchantId() != null)
+            .name("Filter Transactions with merchantId");
+
         // 1. CASCADE PATTERN - Customer Lifecycle Analysis
         // Step 1: Transaction + Customer → EnrichedTransaction
-        DataStream<EnrichedTransaction> enrichedTransactionStream = transactionStream
+        DataStream<EnrichedTransaction> enrichedTransactionStream = transactionsByCustomer
             .keyBy(Transaction::getCustomerId)
             .connect(customerStream.broadcast(CustomerDataEnrichmentProcessor.CUSTOMER_STATE_DESCRIPTOR))
             .process(new CustomerDataEnrichmentProcessor())
@@ -95,7 +117,7 @@ public class FintechAnalyticsJob {
         
         // 2. MERCHANT PERFORMANCE PROCESSOR - Transaction + Merchant data
         // Techniques: Broadcast State Pattern, Side Inputs, Windowed Aggregations
-        DataStream<MerchantAnalyticsMetrics> merchantPerformanceStream = transactionStream
+        DataStream<MerchantAnalyticsMetrics> merchantPerformanceStream = transactionsByMerchant
             .keyBy(Transaction::getMerchantId)
             .connect(merchantStream.broadcast(MerchantPerformanceProcessor.MERCHANT_STATE_DESCRIPTOR))
             .process(new MerchantPerformanceProcessor())
@@ -103,7 +125,7 @@ public class FintechAnalyticsJob {
         
         // 3. CUSTOMER TRANSACTION METRICS PROCESSOR - Transaction table
         // Techniques: Windowed Processing, State Management, Custom Triggers
-        DataStream<TransactionMetrics> customerTransactionMetricsStream = transactionStream
+        DataStream<TransactionMetrics> customerTransactionMetricsStream = transactionsByCustomer
             .keyBy(Transaction::getCustomerId)
             .window(TumblingEventTimeWindows.of(Duration.ofSeconds(30)))
             .process(new CustomerTransactionMetricsProcessor())
@@ -111,7 +133,7 @@ public class FintechAnalyticsJob {
         
         // 4. CUSTOMER FRAUD DETECTION PROCESSOR - Transaction + Account data (Fraud Detection)
         // Techniques: Complex Event Processing, State Management, Stream Joins simulation
-        DataStream<FraudDetectionResult> customerFraudDetectionStream = transactionStream
+        DataStream<FraudDetectionResult> customerFraudDetectionStream = transactionsByCustomer
             .keyBy(Transaction::getCustomerId)
             .connect(accountStream.broadcast(CustomerFraudDetectionProcessor.ACCOUNT_STATE_DESCRIPTOR))
             .process(new CustomerFraudDetectionProcessor())

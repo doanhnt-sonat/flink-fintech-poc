@@ -5,9 +5,16 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.annotation.JsonNaming;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+
 /**
  * Customer model for Flink processing
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
+@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public class Customer {
     private String id;
     private String firstName;
@@ -26,7 +33,9 @@ public class Customer {
     private String employmentStatus;
     private String onboardingChannel;
     private String referralCode;
+    @JsonDeserialize(using = CustomerSession.LocationDeserializer.class)
     private Map<String, Object> preferences;
+    @JsonDeserialize(using = Transaction.StringOrArrayStringListDeserializer.class)
     private List<String> tags;
     private Date createdAt;
     private Date updatedAt;

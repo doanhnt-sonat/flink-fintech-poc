@@ -5,9 +5,21 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.annotation.JsonNaming;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.core.JsonParser;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.DeserializationContext;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.JsonNode;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.core.type.TypeReference;
+
 /**
  * Transaction model for Flink processing
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
+@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public class Transaction {
     private String id;
     private String transactionType;
@@ -25,6 +37,7 @@ public class Transaction {
     private String authorizationCode;
     
     // Location and device info
+    @JsonDeserialize(using = CustomerSession.LocationDeserializer.class)
     private Map<String, Object> transactionLocation;
     private String deviceFingerprint;
     private String ipAddress;
@@ -33,6 +46,7 @@ public class Transaction {
     // Risk and compliance
     private double riskScore;
     private String riskLevel;
+    @JsonDeserialize(using = StringOrArrayStringListDeserializer.class)
     private List<String> complianceFlags;
     
     // Processing details
@@ -41,7 +55,9 @@ public class Transaction {
     private String cardLastFour;
     
     // Metadata
+    @JsonDeserialize(using = StringOrArrayStringListDeserializer.class)
     private List<String> tags;
+    @JsonDeserialize(using = CustomerSession.LocationDeserializer.class)
     private Map<String, Object> metadata;
     
     // Timestamps
@@ -155,5 +171,31 @@ public class Transaction {
                 ", status='" + status + '\'' +
                 ", createdAt=" + createdAt +
                 '}';
+    }
+
+    /**
+     * Deserializer that accepts JSON array of strings or a stringified JSON array,
+     * and returns a List<String>.
+     */
+    public static class StringOrArrayStringListDeserializer extends org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.JsonDeserializer<List<String>> {
+        private static final ObjectMapper M = new ObjectMapper();
+        private static final TypeReference<List<String>> T = new TypeReference<List<String>>() {};
+
+        @Override
+        public List<String> deserialize(JsonParser p, DeserializationContext ctxt) {
+            try {
+                JsonNode n = p.getCodec().readTree(p);
+                if (n == null || n.isNull()) return null;
+                if (n.isArray()) return M.convertValue(n, T);
+                if (n.isTextual()) {
+                    String s = n.asText();
+                    if (s == null || s.isEmpty()) return null;
+                    return M.readValue(s, T);
+                }
+                return M.convertValue(n, T);
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to deserialize compliance_flags", e);
+            }
+        }
     }
 }

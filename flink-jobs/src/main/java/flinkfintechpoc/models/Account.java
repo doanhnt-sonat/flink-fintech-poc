@@ -3,9 +3,17 @@ package flinkfintechpoc.models;
 import java.math.BigDecimal;
 import java.util.Date;
 
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.annotation.JsonNaming;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import flinkfintechpoc.models.CustomerSession.LocationDeserializer;
+
 /**
  * Account model for Flink processing
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
+@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public class Account {
     private String id;
     private String customerId;

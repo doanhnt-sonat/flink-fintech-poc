@@ -2,14 +2,22 @@ package flinkfintechpoc.models;
 
 import java.util.Date;
 
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.annotation.JsonNaming;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+
 /**
  * Merchant model for Flink processing
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
+@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public class Merchant {
     private String id;
     private String name;
     private String businessType;
     private String mccCode;
+    @JsonDeserialize(using = CustomerSession.LocationDeserializer.class)
     private String address;
     private String phone;
     private String website;
