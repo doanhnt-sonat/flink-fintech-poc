@@ -53,6 +53,10 @@ run = "cd flink-jobs && mvn clean package"
 description = "Run main analytics job"
 run = "docker compose -f docker/docker-compose.yml exec -it jobmanager flink run -c flinkfintechpoc.jobs.FintechAnalyticsJob /opt/flink/jobs/flink-jobs-1.0-SNAPSHOT.jar"
 
+[tasks."flink:run:test"]
+description = "Run main analytics job"
+run = "docker compose -f docker/docker-compose.yml exec -it jobmanager flink run -c flinkfintechpoc.jobs.TestPrintJob /opt/flink/jobs/flink-jobs-1.0-SNAPSHOT.jar"
+
 [tasks."flink:jobs"]
 description = "List running Flink jobs"
 run = "docker compose -f docker/docker-compose.yml exec jobmanager flink list"
