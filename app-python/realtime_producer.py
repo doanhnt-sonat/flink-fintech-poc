@@ -1,6 +1,6 @@
 """
 Realtime data producer for fintech streaming data
-Continuously generates and stores realistic financial data in PostgreSQL using outbox pattern
+Continuously generates and stores realistic financial data in PostgreSQL using direct CDC
 """
 
 import asyncio
@@ -34,8 +34,8 @@ def _json_default_serializer(obj):
 
 from models import (
     Customer, Account, Transaction, Merchant, 
-    OutboxEvent, EventType, TransactionStatus,
-    TransactionType, CustomerTier, RiskLevel
+    EventType, TransactionStatus,
+    TransactionType, CustomerTier, RiskLevel, AccountType
 )
 from data_generator import AdvancedDataGenerator
 from connectors import DatabaseManager
@@ -52,7 +52,7 @@ class RealtimeDataProducer:
     - Risk-based event generation
     - Multi-threaded data generation
     - Graceful shutdown handling
-    - Pure Outbox Pattern: Data stored in PostgreSQL, streamed via Debezium
+    - Direct CDC: Data stored in PostgreSQL, streamed via Debezium
     """
     
     def __init__(self, 
@@ -61,7 +61,7 @@ class RealtimeDataProducer:
                   num_customers: int = 100):
         
         self.db_manager = DatabaseManager(db_connection_string)
-        # KafkaManager no longer needed - using outbox pattern with Debezium
+        # KafkaManager no longer needed - using direct CDC with Debezium
         self.data_generator = AdvancedDataGenerator()
         self.production_rate = production_rate
         self.num_customers = num_customers
@@ -90,7 +90,7 @@ class RealtimeDataProducer:
             'start_time': None
         }
         
-        # Kafka topics from config (for reference - created by Debezium from outbox table)
+        # Kafka topics from config (for reference - created by Debezium from tables)
         from config import config
         self.topics = config.KAFKA_TOPICS
         
@@ -193,11 +193,13 @@ class RealtimeDataProducer:
             # Only initialize tables when we need to create new data
             self.db_manager.init_tables()
             
-            # Generate initial customer and account data
+            # Generate initial customer and account data only (no sessions/transactions)
             scenario_data = self.data_generator.generate_realistic_scenario(self.num_customers)
             
             self.customers = scenario_data['customers']
             self.accounts = scenario_data['accounts']
+            
+            # Note: sessions and transactions will be generated in realtime
             
             # Build customer -> accounts mapping
             for account in self.accounts:
@@ -428,17 +430,25 @@ class RealtimeDataProducer:
             
             account = random.choice(customer_accounts)
             
-            # Generate transaction with current progressive base time
-            transaction = self.data_generator.generate_transaction(customer, account)
+            # Generate customer session first (occasionally)
+            session = None
+            if random.random() > 0.9:  # 10% chance
+                # Use current progressive base time for session generation
+                session = self.data_generator.generate_customer_session(customer)
+                
+                # Store customer session in database (will be streamed by Debezium)
+                await self._store_customer_session(session)
+            
+            # Generate transaction with session time boundaries if available
+            transaction = self.data_generator.generate_transaction(
+                customer, 
+                account,
+                session_start=session.started_at if session else None,
+                session_end=session.ended_at if session else None
+            )
             
             # Store in database
             await self._store_transaction(transaction)
-            
-            # Store events in outbox table for Debezium to stream
-            await self._store_outbox_events(transaction, customer, account)
-            
-            # Generate related events
-            await self._generate_related_events(transaction, customer, account)
             
             self.stats['transactions_generated'] += 1
             
@@ -486,102 +496,33 @@ class RealtimeDataProducer:
             logger.error("Failed to store transaction", error=str(e), transaction_id=transaction.id)
             raise
     
-    async def _store_outbox_event(self, outbox_event: OutboxEvent):
-        """Store outbox event in database for Debezium to stream"""
+
+    
+
+    
+    async def _store_customer_session(self, session):
+        """Store customer session in database"""
         try:
             with self.db_manager.get_connection() as conn:
                 with conn.cursor() as cursor:
                     cursor.execute("""
-                        INSERT INTO outbox (
-                            id, aggregate_type, aggregate_id, event_type, payload, 
-                            created_at, version
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        INSERT INTO customer_sessions (
+                            id, customer_id, session_id, channel, device_type,
+                            ip_address, location, started_at, ended_at,
+                            actions_count, transactions_count, created_at, updated_at, version
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, (
-                        outbox_event.id,
-                        outbox_event.aggregate_type,
-                        outbox_event.aggregate_id,
-                        outbox_event.event_type.value,
-                        PsycoJson(json.loads(json.dumps(outbox_event.payload, default=_json_default_serializer))),
-                        outbox_event.created_at,
-                        outbox_event.version
+                        session.id, session.customer_id, session.session_id,
+                        session.channel, session.device_type, session.ip_address,
+                        json.dumps(session.location), session.started_at, session.ended_at,
+                        session.actions_count, session.transactions_count,
+                        session.created_at, session.updated_at, session.version
                     ))
                     conn.commit()
-                    
-        except Exception as e:
-            logger.error("Failed to store outbox event", error=str(e), event_id=outbox_event.id)
-            raise
-    
-    async def _store_outbox_events(self, transaction: Transaction, customer: Customer, account: Account):
-        """Store events in outbox table for Debezium to automatically stream"""
-        try:
-            # Main transaction event
-            transaction_event = OutboxEvent(
-                aggregate_type='Transaction',
-                aggregate_id=transaction.id,
-                event_type=EventType.TRANSACTION_CREATED,
-                payload={
-                    'event_id': str(uuid.uuid4()),
-                    'timestamp': datetime.now(timezone.utc).isoformat(),
-                    'customer_id': customer.id,
-                    'account_id': account.id,
-                    'transaction': json.loads(json.dumps(transaction.dict(), default=_json_default_serializer))
-                }
-            )
-            
-            # Transaction status event
-            status_event = OutboxEvent(
-                aggregate_type='Transaction',
-                aggregate_id=transaction.id,
-                event_type=EventType.TRANSACTION_INITIATED if transaction.status == TransactionStatus.PENDING 
-                          else EventType.TRANSACTION_COMPLETED,
-                payload=transaction.dict()
-            )
-            
-            # Store both events in outbox table
-            await self._store_outbox_event(transaction_event)
-            await self._store_outbox_event(status_event)
-            
-            self.stats['events_sent'] += 2
-            
-            logger.info("Outbox events stored successfully", 
-                       transaction_id=transaction.id,
-                       events_count=2)
         
         except Exception as e:
-            logger.error("Failed to store outbox events", error=str(e))
+            logger.error("Failed to store customer session", error=str(e), session_id=session.id)
             raise
-    
-    async def _generate_related_events(self, transaction: Transaction, customer: Customer, account: Account):
-        """Generate and send related events (fraud alerts, compliance, etc.)"""
-        try:
-
-            
-            # Generate customer session data occasionally
-            if random.random() > 0.9:  # 10% chance
-                # Use current progressive base time for session generation
-                session = self.data_generator.generate_customer_session(customer)
-                
-                # Store customer session event in outbox table
-                session_outbox_event = OutboxEvent(
-                    aggregate_type='CustomerSession',
-                    aggregate_id=session.id,
-                    event_type=EventType.CUSTOMER_SESSION,
-                    payload={
-                        'event_id': str(uuid.uuid4()),
-                        'timestamp': datetime.now(timezone.utc).isoformat(),
-                        'customer_id': customer.id,
-                        'session': json.loads(json.dumps(session.dict(), default=_json_default_serializer))
-                    }
-                )
-                
-                await self._store_outbox_event(session_outbox_event)
-                
-                self.stats['events_sent'] += 1
-        
-        except Exception as e:
-            logger.error("Failed to generate related events", error=str(e))
-    
-    # Method _send_to_kafka removed - now using outbox pattern with Debezium
     
 
     
@@ -662,7 +603,6 @@ class RealtimeDataProducer:
         self.is_running = False
         
         # Close database connections
-        # KafkaManager no longer needed
         
         logger.info("Producer stopped", 
                    total_transactions=self.stats['transactions_generated'],
@@ -726,7 +666,7 @@ async def main():
     # Create and start producer using config
     producer = RealtimeDataProducer(
         db_connection_string=config.DATABASE_URL,
-        # kafka_bootstrap_servers no longer needed - using outbox pattern
+        # kafka_bootstrap_servers no longer needed - using direct CDC
         production_rate=config.PRODUCTION_RATE,
         num_customers=config.NUM_CUSTOMERS
     )

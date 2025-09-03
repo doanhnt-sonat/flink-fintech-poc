@@ -12,12 +12,13 @@ from decimal import Decimal
 
 import requests
 import psycopg2
+from psycopg2 import sql
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 import structlog
 from urllib.parse import urlparse, urlunparse
 
-from models import OutboxEvent
+
 
 logger = structlog.get_logger()
 
@@ -189,55 +190,9 @@ class DatabaseManager:
                     )
                 """)
                 
-                # Outbox table for reliable messaging
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS outbox (
-                        id VARCHAR(255) PRIMARY KEY,
-                        aggregate_type VARCHAR(255) NOT NULL,
-                        aggregate_id VARCHAR(255) NOT NULL,
-                        event_type VARCHAR(255) NOT NULL,
-                        payload JSONB NOT NULL,
-                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                        processed_at TIMESTAMP WITH TIME ZONE,
-                        version INTEGER DEFAULT 1
-                    )
-                """)
+
                 
-                # Fraud alerts table
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS fraud_alerts (
-                        id VARCHAR(255) PRIMARY KEY,
-                        customer_id VARCHAR(255) REFERENCES customers(id),
-                        transaction_id VARCHAR(255),
-                        alert_type VARCHAR(255) NOT NULL,
-                        severity VARCHAR(20) NOT NULL,
-                        description TEXT,
-                        confidence_score DECIMAL(3,2),
-                        rules_triggered JSONB DEFAULT '[]',
-                        is_resolved BOOLEAN DEFAULT FALSE,
-                        resolution_notes TEXT,
-                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                        version INTEGER DEFAULT 1
-                    )
-                """)
-                
-                # Account balances for time-series analysis
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS account_balances (
-                        id VARCHAR(255) PRIMARY KEY,
-                        account_id VARCHAR(255) REFERENCES accounts(id),
-                        customer_id VARCHAR(255) REFERENCES customers(id),
-                        balance DECIMAL(15,2) NOT NULL,
-                        available_balance DECIMAL(15,2) NOT NULL,
-                        pending_credits DECIMAL(15,2) DEFAULT 0,
-                        pending_debits DECIMAL(15,2) DEFAULT 0,
-                        timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                        version INTEGER DEFAULT 1
-                    )
-                """)
+
                 
                 # Customer sessions
                 cursor.execute("""
@@ -263,8 +218,6 @@ class DatabaseManager:
                 cursor.execute("ALTER TABLE customers REPLICA IDENTITY FULL")
                 cursor.execute("ALTER TABLE accounts REPLICA IDENTITY FULL")
                 cursor.execute("ALTER TABLE transactions REPLICA IDENTITY FULL")
-                cursor.execute("ALTER TABLE outbox REPLICA IDENTITY FULL")
-                cursor.execute("ALTER TABLE fraud_alerts REPLICA IDENTITY FULL")
                 
                 conn.commit()
                 logger.info("Database tables initialized successfully")
@@ -293,7 +246,7 @@ class DebeziumConnectorManager:
                 "database.dbname": config.get("database_name", "fintech_demo"),
                 "topic.prefix": config.get("topic_prefix", "fintech"),
                 "schema.include.list": config.get("schema_include", "public"),
-                "table.include.list": config.get("table_include", "public.customers,public.accounts,public.transactions,public.outbox"),
+                "table.include.list": config.get("table_include", "public.customers,public.accounts,public.transactions,public.merchants,public.customer_sessions"),
                 "plugin.name": "pgoutput",
                 "key.converter": "org.apache.kafka.connect.json.JsonConverter",
                 "key.converter.schemas.enable": "false",
@@ -305,14 +258,7 @@ class DebeziumConnectorManager:
             }
         }
         
-        # Add outbox transformation if specified
-        if config.get("enable_outbox", False):
-            connector_config["config"].update({
-                "transforms": "outbox",
-                "transforms.outbox.type": "io.debezium.transforms.outbox.EventRouter",
-                "transforms.outbox.table.expand.json.payload": "true",
-                "transforms.outbox.route.by.field": "event_type"
-            })
+
         
         try:
             response = requests.post(
@@ -399,37 +345,28 @@ class DebeziumConnectorManager:
 
 
 def setup_fintech_connectors():
-    """Setup all fintech-related Kafka connectors"""
+    """Setup fintech Kafka connector"""
     from config import config
     
     connector_manager = DebeziumConnectorManager(connect_url=config.KAFKA_CONNECT_URL)
     
-    # Get connector configs from config.py
+    # Get main connector config from config.py
     main_config = config.CONNECTOR_CONFIGS['main']
-    outbox_config = config.CONNECTOR_CONFIGS['outbox']
-    analytics_config = config.CONNECTOR_CONFIGS['analytics']
     
     try:
-        # Register connectors
+        # Register main connector only
         connector_manager.register_postgres_connector(main_config)
-        time.sleep(2)  # Wait between registrations
         
-        connector_manager.register_postgres_connector(outbox_config)
-        time.sleep(2)
-        
-        connector_manager.register_postgres_connector(analytics_config)
-        
-        logger.info("All fintech connectors registered successfully")
+        logger.info("Fintech connector registered successfully")
         
         # Check status
-        for connector_config in [main_config, outbox_config, analytics_config]:
-            status = connector_manager.get_connector_status(connector_config["connector_name"])
-            logger.info("Connector status", 
-                       connector=connector_config["connector_name"],
-                       status=status.get("connector", {}).get("state", "unknown"))
+        status = connector_manager.get_connector_status(main_config["connector_name"])
+        logger.info("Connector status", 
+                   connector=main_config["connector_name"],
+                   status=status.get("connector", {}).get("state", "unknown"))
         
     except Exception as e:
-        logger.error("Failed to setup connectors", error=str(e))
+        logger.error("Failed to setup connector", error=str(e))
         raise
 
 

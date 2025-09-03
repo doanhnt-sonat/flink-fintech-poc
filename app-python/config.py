@@ -30,7 +30,7 @@ class Config:
     LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
     
     # Topics configuration
-    # Kafka topics (for reference - created by Debezium from outbox table)
+    # Kafka topics (for reference - created by Debezium from tables)
     KAFKA_TOPICS = {
         'transactions': 'fintech.transactions',
         'customers': 'fintech.customers', 
@@ -51,34 +51,9 @@ class Config:
             'database_password': DATABASE_PASSWORD,
             'database_name': DATABASE_NAME,
             'topic_prefix': 'fintech',
-            'table_include': 'public.customers,public.accounts,public.transactions,public.merchants,public.fraud_alerts',
+            'table_include': 'public.customers,public.accounts,public.transactions,public.merchants,public.customer_sessions',
             'slot_name': 'debezium_main',
             'publication_name': 'dbz_main'
-        },
-        'outbox': {
-            'connector_name': 'fintech-outbox-connector',
-            'database_host': DATABASE_HOST,
-            'database_port': DATABASE_PORT,
-            'database_user': DATABASE_USER,
-            'database_password': DATABASE_PASSWORD,
-            'database_name': DATABASE_NAME,
-            'topic_prefix': 'fintech.events',
-            'table_include': 'public.outbox',
-            'enable_outbox': True,
-            'slot_name': 'debezium_outbox',
-            'publication_name': 'dbz_outbox'
-        },
-        'analytics': {
-            'connector_name': 'fintech-analytics-connector',
-            'database_host': DATABASE_HOST,
-            'database_port': DATABASE_PORT,
-            'database_user': DATABASE_USER,
-            'database_password': DATABASE_PASSWORD,
-            'database_name': DATABASE_NAME,
-            'topic_prefix': 'fintech.analytics',
-            'table_include': 'public.account_balances,public.customer_sessions',
-            'slot_name': 'debezium_analytics',
-            'publication_name': 'dbz_analytics'
         }
     }
 

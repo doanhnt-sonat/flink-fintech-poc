@@ -81,9 +81,9 @@ async def generate_sample_data(db_connection: str, num_customers: int = 10):
 async def start_producer(db_connection: str, 
                          rate: int = 5,
                          num_customers: int = 50):
-    """Start the realtime data producer using outbox pattern"""
+    """Start the realtime data producer using direct CDC"""
     logger = structlog.get_logger()
-    logger.info("Starting realtime data producer using outbox pattern...", 
+    logger.info("Starting realtime data producer using direct CDC...", 
                rate=rate, 
                num_customers=num_customers)
     
@@ -181,7 +181,7 @@ async def main():
                                 args.num_customers or config.NUM_CUSTOMERS)
         
         elif args.command == 'run-all':
-            logger.info("Running full setup and producer using outbox pattern...")
+            logger.info("Running full setup and producer using direct CDC...")
             
             # Initialize database
             await init_database(args.db_connection or config.DATABASE_URL)
@@ -192,7 +192,7 @@ async def main():
                 # Wait a bit for connectors to be ready
                 await asyncio.sleep(5)
             
-            # Start producer (data will be streamed via Debezium outbox pattern)
+            # Start producer (data will be streamed via Debezium CDC)
             await start_producer(args.db_connection or config.DATABASE_URL,
                                 args.rate or config.PRODUCTION_RATE,
                                 args.num_customers or config.NUM_CUSTOMERS)

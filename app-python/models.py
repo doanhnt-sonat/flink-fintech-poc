@@ -212,28 +212,7 @@ class CustomerSession(BaseEntity):
 
 
 
-class OutboxEvent(BaseModel):
-    """Outbox pattern event for reliable messaging"""
-    id: str = Field(default_factory=lambda: str(uuid4()))
-    aggregate_type: str
-    aggregate_id: str
-    event_type: EventType
-    payload: Dict[str, Any]
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    processed_at: Optional[datetime] = None
-    version: int = 1
 
-    def to_json(self) -> str:
-        """Convert to JSON string"""
-        return json.dumps({
-            "id": self.id,
-            "aggregate_type": self.aggregate_type,
-            "aggregate_id": self.aggregate_id,
-            "event_type": self.event_type.value,
-            "payload": self.payload,
-            "created_at": self.created_at.isoformat(),
-            "version": self.version
-        })
 
 
 

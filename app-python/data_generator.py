@@ -15,7 +15,7 @@ from models import (
     Customer, Account, Transaction, Merchant, 
     CustomerSession,
     TransactionType, TransactionStatus, AccountType, CustomerTier,
-    RiskLevel, Address, OutboxEvent, EventType
+    RiskLevel, Address, EventType
 )
 
 
@@ -416,24 +416,15 @@ class AdvancedDataGenerator:
             transactions_count=estimated_transactions
         )
     
-    def generate_outbox_event(self, aggregate_type: str, aggregate_id: str, 
-                            event_type: EventType, payload: Dict) -> OutboxEvent:
-        """Generate outbox event for reliable messaging"""
-        return OutboxEvent(
-            aggregate_type=aggregate_type,
-            aggregate_id=aggregate_id,
-            event_type=event_type,
-            payload=payload
-        )
+
     
-    def generate_realistic_scenario(self, num_customers: int = 10) -> Dict[str, List]:
-        """Generate a complete realistic scenario with interconnected data"""
+    def generate_realistic_scenario(self, num_customers: int = 10, include_sessions_transactions: bool = False) -> Dict[str, List]:
+        """Generate a realistic scenario with customers and accounts only (sessions/transactions generated in realtime)"""
         scenario_data = {
             'customers': [],
             'accounts': [],
             'transactions': [],
-            'sessions': [],
-            'outbox_events': []
+            'sessions': []
         }
         
         # Generate customers and their accounts
@@ -450,61 +441,51 @@ class AdvancedDataGenerator:
                 customer_accounts.append(account)
                 scenario_data['accounts'].append(account)
             
-            # Generate customer session FIRST to establish time boundaries
-            session = None
-            if random.random() > 0.3:  # 70% chance of having a session
-                session = self.generate_customer_session(customer)
-                scenario_data['sessions'].append(session)
-            
-            # Generate transactions for each account within session time if available
-            customer_transactions = []  # Collect transactions for this customer first
-            
-            for account in customer_accounts:
-                daily_txns = random.randint(*self.transaction_patterns[customer.tier]['daily_txns'])
+            # Only generate sessions and transactions if explicitly requested
+            if include_sessions_transactions:
+                # Generate customer session FIRST to establish time boundaries
+                session = None
+                if random.random() > 0.3:  # 70% chance of having a session
+                    session = self.generate_customer_session(customer)
+                    scenario_data['sessions'].append(session)
                 
-                for _ in range(daily_txns):
-                    # Pass session time boundaries to ensure transactions occur during session
-                    transaction = self.generate_transaction(
-                        customer, 
-                        account,
-                        session_start=session.started_at if session else None,
-                        session_end=session.ended_at if session else None
-                    )
-                    customer_transactions.append(transaction)
-            
-            # Sort transactions by time to ensure logical sequence
-            customer_transactions.sort(key=lambda x: x.created_at)
-            
-            # Add sorted transactions to scenario
-            scenario_data['transactions'].extend(customer_transactions)
-            
-            # Generate outbox events for all transactions
-            for transaction in customer_transactions:
-                # Generate outbox event for transaction
-                event = self.generate_outbox_event(
-                    'Transaction',
-                    transaction.id,
-                    EventType.TRANSACTION_INITIATED if transaction.status == TransactionStatus.PENDING 
-                    else EventType.TRANSACTION_COMPLETED,
-                    transaction.dict()
-                )
-                scenario_data['outbox_events'].append(event)
-            
-            # Update session with actual transaction count after all transactions are created
-            if session:
-                # Recalculate session data based on actual transactions
-                session_transactions = [
-                    t for t in scenario_data['transactions'] 
-                    if t.customer_id == customer.id and 
-                    session.started_at <= t.created_at <= session.ended_at
-                ]
-                session.transactions_count = len(session_transactions)
+                # Generate transactions for each account within session time if available
+                customer_transactions = []  # Collect transactions for this customer first
                 
-                # Recalculate actions count based on actual transactions
-                base_actions = max(1, (session.ended_at - session.started_at).total_seconds() // 60)
-                transaction_actions = session.transactions_count * 3
-                other_actions = random.randint(5, 20)
-                session.actions_count = int(base_actions + transaction_actions + other_actions)
+                for account in customer_accounts:
+                    daily_txns = random.randint(*self.transaction_patterns[customer.tier]['daily_txns'])
+                    
+                    for _ in range(daily_txns):
+                        # Pass session time boundaries to ensure transactions occur during session
+                        transaction = self.generate_transaction(
+                            customer, 
+                            account,
+                            session_start=session.started_at if session else None,
+                            session_end=session.ended_at if session else None
+                        )
+                        customer_transactions.append(transaction)
+                
+                # Sort transactions by time to ensure logical sequence
+                customer_transactions.sort(key=lambda x: x.created_at)
+                
+                # Add sorted transactions to scenario
+                scenario_data['transactions'].extend(customer_transactions)
+                
+                # Update session with actual transaction count after all transactions are created
+                if session:
+                    # Recalculate session data based on actual transactions
+                    session_transactions = [
+                        t for t in scenario_data['transactions'] 
+                        if t.customer_id == customer.id and 
+                        session.started_at <= t.created_at <= session.ended_at
+                    ]
+                    session.transactions_count = len(session_transactions)
+                    
+                    # Recalculate actions count based on actual transactions
+                    base_actions = max(1, (session.ended_at - session.started_at).total_seconds() // 60)
+                    transaction_actions = session.transactions_count * 3
+                    other_actions = random.randint(5, 20)
+                    session.actions_count = int(base_actions + transaction_actions + other_actions)
         
         # Automatically advance base time for next run to simulate time progression
         # This ensures each run generates data for a different day
