@@ -1,6 +1,7 @@
 package flinkfintechpoc.models;
 
 import java.util.Date;
+import java.util.Map;
 
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.PropertyNamingStrategies;
@@ -18,7 +19,7 @@ public class Merchant {
     private String businessType;
     private String mccCode;
     @JsonDeserialize(using = CustomerSession.LocationDeserializer.class)
-    private String address;
+    private Map<String, Object> address;
     private String phone;
     private String website;
     private String taxId;
@@ -52,8 +53,8 @@ public class Merchant {
     public String getMccCode() { return mccCode; }
     public void setMccCode(String mccCode) { this.mccCode = mccCode; }
     
-    public String getAddress() { return address; }
-    public void setAddress(String address) { this.address = address; }
+    public Map<String, Object> getAddress() { return address; }
+    public void setAddress(Map<String, Object> address) { this.address = address; }
     
     public String getPhone() { return phone; }
     public void setPhone(String phone) { this.phone = phone; }

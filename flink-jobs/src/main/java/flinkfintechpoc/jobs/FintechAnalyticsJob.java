@@ -40,7 +40,7 @@ import org.slf4j.LoggerFactory;
 public class FintechAnalyticsJob {
     private static final Logger LOG = LoggerFactory.getLogger(FintechAnalyticsJob.class);
     
-    // Kafka topics
+    // Kafka topics (Debezium format: topic_prefix.schema.table)
     private static final String TRANSACTIONS_TOPIC = "fintech.public.transactions";
     private static final String CUSTOMERS_TOPIC = "fintech.public.customers";
     private static final String MERCHANTS_TOPIC = "fintech.public.merchants";
@@ -68,25 +68,43 @@ public class FintechAnalyticsJob {
         // Log sample of incoming transactions to verify data flow
         DataStream<Transaction> transactionStreamLogged = transactionStream
             .map(t -> {
-                if (Math.random() < 0.5) {
-                    LOG.info("RX Transaction id={}, customerId={}, merchantId={}, amount={}",
-                            t.getId(), t.getCustomerId(), t.getMerchantId(), t.getAmount());
-                }
+                LOG.info("RX Transaction id={}, customerId={}, merchantId={}, amount={}",
+                        t.getId(), t.getCustomerId(), t.getMerchantId(), t.getAmount());
                 return t;
             })
             .name("Log Transactions");
         
         DataStream<Customer> customerStream = env
-            .fromSource(customerSource, WatermarkStrategy.noWatermarks(), "Customers");
+            .fromSource(customerSource, WatermarkStrategy.noWatermarks(), "Customers")
+            .map(c -> {
+                LOG.info("RX Customer id={}, email={}, tier={}", c.getId(), c.getEmail(), c.getTier());
+                return c;
+            })
+            .name("Log Customers");
         
         DataStream<Merchant> merchantStream = env
-            .fromSource(merchantSource, WatermarkStrategy.noWatermarks(), "Merchants");
+            .fromSource(merchantSource, WatermarkStrategy.noWatermarks(), "Merchants")
+            .map(m -> {
+                LOG.info("RX Merchant id={}, name={}, businessType={}", m.getId(), m.getName(), m.getBusinessType());
+                return m;
+            })
+            .name("Log Merchants");
         
         DataStream<CustomerSession> customerSessionStream = env
-            .fromSource(customerSessionSource, WatermarkStrategy.noWatermarks(), "Customer Sessions");
+            .fromSource(customerSessionSource, WatermarkStrategy.noWatermarks(), "Customer Sessions")
+            .map(s -> {
+                LOG.info("RX CustomerSession id={}, customerId={}, channel={}", s.getId(), s.getCustomerId(), s.getChannel());
+                return s;
+            })
+            .name("Log Customer Sessions");
         
         DataStream<Account> accountStream = env
-            .fromSource(accountSource, WatermarkStrategy.noWatermarks(), "Accounts");
+            .fromSource(accountSource, WatermarkStrategy.noWatermarks(), "Accounts")
+            .map(a -> {
+                LOG.info("RX Account id={}, customerId={}, accountType={}", a.getId(), a.getCustomerId(), a.getAccountType());
+                return a;
+            })
+            .name("Log Accounts");
         
         // ============================================================================
         // 4 CORE PROCESSORS - Covering All Flink Techniques
@@ -174,11 +192,12 @@ public class FintechAnalyticsJob {
     
     
     private static <T> KafkaSource<T> createJsonKafkaSource(String topic, Class<T> cls) {
+        LOG.info("Creating Kafka source for topic: {} with class: {}", topic, cls.getSimpleName());
         return KafkaSource.<T>builder()
             .setBootstrapServers("kafka:29092")
             .setTopics(topic)
             .setGroupId("flink-analytics-group")
-            .setStartingOffsets(OffsetsInitializer.latest())
+            .setStartingOffsets(OffsetsInitializer.earliest())
             .setValueOnlyDeserializer(new JsonDeserializationSchema<>(cls))
             .build();
     }
