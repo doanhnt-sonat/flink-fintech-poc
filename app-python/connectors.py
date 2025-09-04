@@ -5,7 +5,6 @@ Handles PostgreSQL connections and Debezium connector registration
 
 import json
 import logging
-import time
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 from decimal import Decimal

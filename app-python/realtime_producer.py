@@ -10,7 +10,6 @@ import os
 import random
 import signal
 import sys
-import time
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional
 from decimal import Decimal
@@ -179,7 +178,6 @@ class RealtimeDataProducer:
             # Load existing customers and accounts from database
             self.customers = await self._load_existing_customers()
             self.accounts = await self._load_existing_accounts()
-            self.merchants = await self._load_existing_merchants()
             self.merchants = await self._load_existing_merchants()
             
             # Build customer -> accounts mapping
@@ -601,8 +599,7 @@ class RealtimeDataProducer:
         
         # Start background tasks
         tasks = [
-            asyncio.create_task(self._transaction_generator_loop()),
-            asyncio.create_task(self._stats_reporter_loop())
+            asyncio.create_task(self._transaction_generator_loop())
         ]
         
         try:
@@ -632,30 +629,6 @@ class RealtimeDataProducer:
                 await asyncio.sleep(1)  # Prevent tight error loop
     
 
-    
-    async def _stats_reporter_loop(self):
-        """Statistics reporting loop"""
-        while self.is_running:
-            try:
-                await asyncio.sleep(30)  # Report every 30 seconds
-                
-                if self.stats['start_time']:
-                    runtime = datetime.now(timezone.utc) - self.stats['start_time']
-                    rate = self.stats['transactions_generated'] / runtime.total_seconds()
-                    
-                    logger.info("Producer statistics",
-                               transactions=self.stats['transactions_generated'],
-                               events=self.stats['events_sent'],
-                               errors=self.stats['errors'],
-                               rate_per_second=round(rate, 2),
-                               runtime_minutes=round(runtime.total_seconds() / 60, 2),
-                               current_base_time=self.current_base_time,
-                               time_progression_hours=round((self.current_base_time - datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc)).total_seconds() / 3600, 1) if self.current_base_time else 0)
-                
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error("Error in stats reporter loop", error=str(e))
     
     def stop(self):
         """Stop the producer gracefully"""

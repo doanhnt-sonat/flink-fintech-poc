@@ -7,15 +7,14 @@ import random
 import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional
 from faker import Faker
-import numpy as np
 
 from models import (
     Customer, Account, Transaction, Merchant, 
     CustomerSession,
     TransactionType, TransactionStatus, AccountType, CustomerTier,
-    RiskLevel, Address, EventType
+    RiskLevel, Address
 )
 
 
@@ -33,7 +32,6 @@ class AdvancedDataGenerator:
         if seed:
             Faker.seed(seed)
             random.seed(seed)
-            np.random.seed(seed)
         
         # Base time for consistent data generation
         # Start with a fixed date but allow it to progress with each run
@@ -176,8 +174,6 @@ class AdvancedDataGenerator:
                     weights=[50, 25, 20, 5]
                 )[0]
         
-
-        
         account = Account(
             customer_id=customer.id,
             account_number=f"ACC-{random.randint(100000000, 999999999)}",
@@ -246,8 +242,6 @@ class AdvancedDataGenerator:
             max_amount *= high_mod
         
         amount = Decimal(str(round(random.uniform(min_amount, max_amount), 2)))
-        
-
         
         # Fee calculation
         fee_amount = Decimal('0.00')
@@ -383,10 +377,6 @@ class AdvancedDataGenerator:
         
         return tags
     
-
-    
-
-    
     def generate_customer_session(self, customer: Customer) -> CustomerSession:
         """Generate customer session data with time boundaries"""
         # Use base time for consistency and reproducibility
@@ -415,8 +405,6 @@ class AdvancedDataGenerator:
             actions_count=total_actions,
             transactions_count=estimated_transactions
         )
-    
-
     
     def generate_realistic_scenario(self, num_customers: int = 10, include_sessions_transactions: bool = False) -> Dict[str, List]:
         """Generate a realistic scenario with customers and accounts only (sessions/transactions generated in realtime)"""

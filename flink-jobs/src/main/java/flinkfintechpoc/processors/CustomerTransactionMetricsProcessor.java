@@ -81,20 +81,30 @@ public class CustomerTransactionMetricsProcessor extends ProcessWindowFunction<T
     
     @Override
     public void process(String customerId, Context context, Iterable<Transaction> transactions, Collector<TransactionMetrics> out) throws Exception {
+        LOG.info("Processing window for customer: {}, window: {} - {}", 
+                customerId, context.window().getStart(), context.window().getEnd());
+        
         // Initialize window state
         initializeWindowState();
         
+        int transactionCountInWindow = 0;
         // Process all transactions in the window
         for (Transaction transaction : transactions) {
             updateTransactionMetrics(transaction);
+            transactionCountInWindow++;
+            LOG.debug("Processing transaction {} for customer {}: amount={}", 
+                    transaction.getId(), customerId, transaction.getAmount());
         }
+        
+        LOG.info("Found {} transactions in window for customer {}", transactionCountInWindow, customerId);
         
         // Generate final metrics for the window
         TransactionMetrics metrics = generateWindowMetrics(customerId, context.window().getEnd());
         out.collect(metrics);
         
-        LOG.info("Processed window for customer {}: {} transactions, total: ${}", 
-                customerId, transactionCount.value(), totalAmount.value());
+        LOG.info("Emitted TransactionMetrics for customer {}: {} transactions, total: ${}, min: ${}, max: ${}", 
+                customerId, transactionCount.value(), totalAmount.value(), 
+                metrics.getMinAmount(), metrics.getMaxAmount());
     }
     
     private void initializeWindowState() throws Exception {
@@ -105,10 +115,10 @@ public class CustomerTransactionMetricsProcessor extends ProcessWindowFunction<T
             transactionCount.update(0);
         }
         if (minAmount.value() == null) {
-            minAmount.update(BigDecimal.ZERO);
+            minAmount.update(null); // Initialize as null, not ZERO
         }
         if (maxAmount.value() == null) {
-            maxAmount.update(BigDecimal.ZERO);
+            maxAmount.update(null); // Initialize as null, not ZERO
         }
         if (transactionTypeCounts.value() == null) {
             transactionTypeCounts.update(new HashMap<>());
@@ -135,11 +145,11 @@ public class CustomerTransactionMetricsProcessor extends ProcessWindowFunction<T
         currentTotal = currentTotal.add(amount);
         currentCount++;
         
-        // Update min/max
-        if (currentMin.equals(BigDecimal.ZERO) || amount.compareTo(currentMin) < 0) {
+        // Update min/max - Fix logic for proper min/max calculation
+        if (currentMin == null || amount.compareTo(currentMin) < 0) {
             currentMin = amount;
         }
-        if (amount.compareTo(currentMax) > 0) {
+        if (currentMax == null || amount.compareTo(currentMax) > 0) {
             currentMax = amount;
         }
         
@@ -179,6 +189,10 @@ public class CustomerTransactionMetricsProcessor extends ProcessWindowFunction<T
         Map<String, Integer> typeCounts = transactionTypeCounts.value();
         Map<String, Integer> locationCounts = this.locationCounts.value();
         Map<String, Integer> deviceCounts = this.deviceCounts.value();
+        
+        // Handle null min/max values
+        if (min == null) min = BigDecimal.ZERO;
+        if (max == null) max = BigDecimal.ZERO;
         
         // Calculate derived metrics
         BigDecimal averageAmount = count > 0 ? total.divide(BigDecimal.valueOf(count), 2, java.math.RoundingMode.HALF_UP) : BigDecimal.ZERO;

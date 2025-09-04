@@ -59,24 +59,6 @@ async def setup_connectors():
     logger.info("Debezium connectors setup completed")
 
 
-async def generate_sample_data(db_connection: str, num_customers: int = 10):
-    """Generate and store sample data"""
-    logger = structlog.get_logger()
-    logger.info("Generating sample data...", num_customers=num_customers)
-    
-    generator = AdvancedDataGenerator()
-    scenario_data = generator.generate_realistic_scenario(num_customers)
-    
-    # Store in database
-    db_manager = DatabaseManager(db_connection)
-    
-    # This would need additional implementation to store all the generated data
-    # For now, just log the statistics
-    logger.info("Sample data generated",
-                customers=len(scenario_data['customers']),
-                accounts=len(scenario_data['accounts']),
-                transactions=len(scenario_data['transactions']))
-
 
 async def start_producer(db_connection: str, 
                          rate: int = 5,
@@ -126,10 +108,6 @@ def create_parser():
     # Setup connectors command
     connector_parser = subparsers.add_parser('setup-connectors', help='Setup Debezium connectors')
     
-    # Generate sample data command
-    sample_parser = subparsers.add_parser('generate-sample', help='Generate sample data')
-    sample_parser.add_argument('--num-customers', type=int, default=10,
-                              help='Number of customers to generate')
     
     # Start producer command
     producer_parser = subparsers.add_parser('start-producer', help='Start realtime data producer')
@@ -171,9 +149,6 @@ async def main():
         
         elif args.command == 'setup-connectors':
             await setup_connectors()
-        
-        elif args.command == 'generate-sample':
-            await generate_sample_data(args.db_connection or config.DATABASE_URL, args.num_customers or config.NUM_CUSTOMERS)
         
         elif args.command == 'start-producer':
             await start_producer(args.db_connection or config.DATABASE_URL, 

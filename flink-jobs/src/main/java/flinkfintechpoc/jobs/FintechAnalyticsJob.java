@@ -3,16 +3,16 @@ package flinkfintechpoc.jobs;
 import flinkfintechpoc.models.*;
 import flinkfintechpoc.processors.*;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
-import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 import org.apache.flink.connector.kafka.sink.KafkaSink;
 import org.apache.flink.connector.kafka.sink.KafkaRecordSerializationSchema;
 import org.apache.flink.connector.base.DeliveryGuarantee;
 import java.util.Properties;
+import org.apache.flink.formats.json.JsonSerializationSchema;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows;
+import org.apache.flink.streaming.api.windowing.assigners.TumblingProcessingTimeWindows;
 import java.time.Duration;
 import org.apache.flink.formats.json.JsonDeserializationSchema;
 import org.slf4j.Logger;
@@ -145,7 +145,7 @@ public class FintechAnalyticsJob {
         // Techniques: Windowed Processing, State Management, Custom Triggers
         DataStream<TransactionMetrics> customerTransactionMetricsStream = transactionsByCustomer
             .keyBy(Transaction::getCustomerId)
-            .window(TumblingEventTimeWindows.of(Duration.ofSeconds(30)))
+            .window(TumblingProcessingTimeWindows.of(Duration.ofSeconds(30)))
             .process(new CustomerTransactionMetricsProcessor())
             .name("Customer Transaction Metrics Analysis");
         
@@ -164,26 +164,22 @@ public class FintechAnalyticsJob {
         
         // 1. Customer Lifecycle Metrics - Customer analytics & lifecycle events
         customerLifecycleStream
-            .map(metrics -> metrics.toString())
-            .sinkTo(createKafkaSink("fintech.customer_lifecycle"))
+            .sinkTo(createKafkaSink("fintech.customer_lifecycle", CustomerLifecycleMetrics.class))
             .name("Customer Lifecycle Output");
         
         // 2. Merchant Performance - Merchant performance & business insights
         merchantPerformanceStream
-            .map(metrics -> metrics.toString())
-            .sinkTo(createKafkaSink("fintech.merchant_performance"))
+            .sinkTo(createKafkaSink("fintech.merchant_performance", MerchantAnalyticsMetrics.class))
             .name("Merchant Performance Output");
         
         // 3. Customer Transaction Metrics - Core transaction analytics & dashboard metrics
         customerTransactionMetricsStream
-            .map(metrics -> metrics.toString())
-            .sinkTo(createKafkaSink("fintech.customer_transaction_metrics"))
+            .sinkTo(createKafkaSink("fintech.customer_transaction_metrics", TransactionMetrics.class))
             .name("Customer Transaction Metrics Output");
         
         // 4. Customer Fraud Detection Alerts - Real-time security monitoring
         customerFraudDetectionStream
-            .map(alert -> alert.toString())
-            .sinkTo(createKafkaSink("fintech.customer_fraud_alerts"))
+            .sinkTo(createKafkaSink("fintech.customer_fraud_alerts", FraudDetectionResult.class))
             .name("Customer Fraud Detection Output");
         
         // Execute the job
@@ -202,16 +198,16 @@ public class FintechAnalyticsJob {
             .build();
     }
     
-    private static KafkaSink<String> createKafkaSink(String topic) {
+    private static <T> KafkaSink<T> createKafkaSink(String topic, Class<T> cls) {
         Properties kafkaProps = new Properties();
         kafkaProps.put("transaction.timeout.ms", "300000"); // 5 minutes
 
-        return KafkaSink.<String>builder()
+        return KafkaSink.<T>builder()
             .setBootstrapServers("kafka:29092")
             .setRecordSerializer(
                 KafkaRecordSerializationSchema.builder()
                     .setTopic(topic)
-                    .setValueSerializationSchema(new SimpleStringSchema())
+                    .setValueSerializationSchema(new JsonSerializationSchema<T>())
                     .build()
             )
             .setKafkaProducerConfig(kafkaProps)

@@ -105,24 +105,26 @@ services:
     image: grafana/grafana:latest
     hostname: grafana
     depends_on:
-      kafka:
+      clickhouse:
         condition: service_healthy
     ports:
       - "3000:3000"
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
-      GF_INSTALL_PLUGINS: hamedkarbasi93-kafka-datasource
-      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: hamedkarbasi93-kafka-datasource
+      GF_INSTALL_PLUGINS: grafana-clickhouse-datasource
+      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: grafana-clickhouse-datasource
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
       interval: 30s
       timeout: 10s
-      retries: 3
+      retries: 5
+      start_period: 30s
      
 
   kafka-ui:
@@ -140,12 +142,23 @@ services:
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
       KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: debezium
       KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://kafka-connect:8083
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   jobmanager:
     build:
       context: ./flink
     ports:
       - "8081:8081"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
     environment:
       - JOB_MANAGER_RPC_ADDRESS=jobmanager
     volumes:
@@ -156,6 +169,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
 
   taskmanager:
     build:
@@ -169,8 +183,42 @@ services:
     volumes:
       - ../flink-jobs/target:/opt/flink/jobs
     command: taskmanager
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/taskmanagers"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
-  # Python Fintech Data Producer
+  # ClickHouse Data Warehouse with Kafka Integration
+  clickhouse:
+    build:
+      context: ./clickhouse
+      dockerfile: Dockerfile
+    hostname: clickhouse
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    environment:
+      CLICKHOUSE_DB: fintech_analytics
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./clickhouse/init:/docker-entrypoint-initdb.d
+    restart: unless-stopped
+
+  # Python Fintech Data Producer - Streaming Data Generator
   fintech-python-app:
     build:
       context: ../app-python
@@ -182,6 +230,8 @@ services:
       postgres:
         condition: service_healthy
       kafka-connect:
+        condition: service_healthy
+      clickhouse:
         condition: service_healthy
     environment:
       DATABASE_HOST: postgres
@@ -198,12 +248,13 @@ services:
       - ../app-python:/app
     working_dir: /app
     command: ["python", "main.py", "run-all", "--rate", "5", "--num-customers", "50"]
-    restart: "no"
-    # healthcheck:
-    #   test: ["CMD", "python", "-c", "import psycopg2; psycopg2.connect('postgresql://postgres:postgres@postgres:5432/fintech_demo').close()"]
-    #   interval: 30s
-    #   timeout: 10s
-    #   retries: 5
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import psycopg2; psycopg2.connect('postgresql://postgres:postgres@postgres:5432/fintech_demo').close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
 
 volumes:
@@ -211,3 +262,4 @@ volumes:
   postgres-data:
   pgadmin-data:
   grafana-data:
+  clickhouse-data:

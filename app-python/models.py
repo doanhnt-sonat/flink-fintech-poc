@@ -9,8 +9,6 @@ from enum import Enum
 from typing import Optional, List, Dict, Any
 from uuid import UUID, uuid4
 from pydantic import BaseModel, Field, validator
-from dataclasses import dataclass
-import json
 
 
 class TransactionType(str, Enum):

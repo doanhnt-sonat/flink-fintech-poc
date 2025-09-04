@@ -8,6 +8,8 @@ import org.apache.flink.api.common.state.MapStateDescriptor;
 import org.apache.flink.api.common.state.ReadOnlyBroadcastState;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
+import org.apache.flink.api.common.state.ListState;
+import org.apache.flink.api.common.state.ListStateDescriptor;
 import org.apache.flink.api.common.typeinfo.TypeHint;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.common.functions.OpenContext;
@@ -20,6 +22,8 @@ import java.math.BigDecimal;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Customer Lifecycle Processor - Step 2 of Cascade Pattern
@@ -48,6 +52,10 @@ public class CustomerLifecycleProcessor extends KeyedBroadcastProcessFunction<St
     private ValueState<String> currentTier;
     private ValueState<String> currentKycStatus;
     private ValueState<Map<String, Object>> sessionMetrics;
+    // Last-20 transactions average for tier calculation
+    private ListState<BigDecimal> last20TransactionAmounts;
+    private ValueState<BigDecimal> last20Sum;
+    private ValueState<Integer> last20Count;
     
     @Override
     public void open(OpenContext openContext) throws Exception {
@@ -99,6 +107,22 @@ public class CustomerLifecycleProcessor extends KeyedBroadcastProcessFunction<St
             TypeInformation.of(new TypeHint<Map<String, Object>>() {})
         );
         sessionMetrics = getRuntimeContext().getState(sessionDescriptor);
+        // Initialize last-20 transaction amounts state
+        ListStateDescriptor<BigDecimal> last20Desc = new ListStateDescriptor<>(
+            "last-20-transaction-amounts",
+            BigDecimal.class
+        );
+        last20TransactionAmounts = getRuntimeContext().getListState(last20Desc);
+        ValueStateDescriptor<BigDecimal> last20SumDesc = new ValueStateDescriptor<>(
+            "last-20-sum",
+            BigDecimal.class
+        );
+        last20Sum = getRuntimeContext().getState(last20SumDesc);
+        ValueStateDescriptor<Integer> last20CountDesc = new ValueStateDescriptor<>(
+            "last-20-count",
+            Integer.class
+        );
+        last20Count = getRuntimeContext().getState(last20CountDesc);
     }
     
     @Override
@@ -115,6 +139,7 @@ public class CustomerLifecycleProcessor extends KeyedBroadcastProcessFunction<St
         
         // Update transaction-based metrics
         updateTransactionMetrics(enrichedTransaction, currentTime);
+        updateLast20Amounts(enrichedTransaction);
         
         // Update session-based metrics if session exists
         if (session != null) {
@@ -226,8 +251,8 @@ public class CustomerLifecycleProcessor extends KeyedBroadcastProcessFunction<St
         boolean kycCompleted = false;
         boolean sessionInsight = false;
         
-        // Check for tier changes based on transaction volume
-        String newTier = determineTierFromTransactions(totalAmount, count);
+        // Check for tier changes based on average of last 20 transactions
+        String newTier = determineTierFromAverage(computeAverageLast20());
         if (!newTier.equals(currentTierValue)) {
             if (isTierUpgrade(currentTierValue, newTier)) {
                 eventType = "TIER_UPGRADE";
@@ -300,6 +325,59 @@ public class CustomerLifecycleProcessor extends KeyedBroadcastProcessFunction<St
         } else if (totalAmount.compareTo(new BigDecimal("50000")) > 0 && count > 50) {
             return "premium";
         } else if (totalAmount.compareTo(new BigDecimal("10000")) > 0 && count > 20) {
+            return "standard";
+        } else {
+            return "basic";
+        }
+    }
+
+    private void updateLast20Amounts(EnrichedTransaction enrichedTransaction) throws Exception {
+        // Initialize sum/count if needed
+        if (last20Sum.value() == null) last20Sum.update(BigDecimal.ZERO);
+        if (last20Count.value() == null) last20Count.update(0);
+
+        List<BigDecimal> amounts = new ArrayList<>();
+        for (BigDecimal a : last20TransactionAmounts.get()) {
+            amounts.add(a);
+        }
+
+        BigDecimal sum = last20Sum.value();
+        int count = last20Count.value();
+
+        // If already 20 elements, remove the oldest from sum
+        if (amounts.size() >= 20) {
+            BigDecimal oldest = amounts.remove(0);
+            if (oldest != null) {
+                sum = sum.subtract(oldest);
+                count = Math.max(0, count - 1);
+            }
+        }
+
+        // Add new amount
+        BigDecimal cur = enrichedTransaction.getAmount();
+        amounts.add(cur);
+        sum = sum.add(cur);
+        count = Math.min(20, count + 1);
+
+        last20TransactionAmounts.update(amounts);
+        last20Sum.update(sum);
+        last20Count.update(count);
+    }
+
+    private BigDecimal computeAverageLast20() throws Exception {
+        Integer n = last20Count.value();
+        if (n == null || n == 0) return BigDecimal.ZERO;
+        BigDecimal sum = last20Sum.value();
+        if (sum == null) return BigDecimal.ZERO;
+        return sum.divide(new BigDecimal(n), 2, java.math.RoundingMode.HALF_UP);
+    }
+
+    private String determineTierFromAverage(BigDecimal avgAmount) {
+        if (avgAmount.compareTo(new BigDecimal("5000")) >= 0) {
+            return "vip";
+        } else if (avgAmount.compareTo(new BigDecimal("1000")) >= 0) {
+            return "premium";
+        } else if (avgAmount.compareTo(new BigDecimal("200")) >= 0) {
             return "standard";
         } else {
             return "basic";

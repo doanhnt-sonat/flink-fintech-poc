@@ -53,29 +53,7 @@ run = "cd flink-jobs && mvn clean package"
 description = "Run main analytics job"
 run = "docker compose -f docker/docker-compose.yml exec -it jobmanager flink run -c flinkfintechpoc.jobs.FintechAnalyticsJob /opt/flink/jobs/flink-jobs-1.0-SNAPSHOT.jar"
 
-[tasks."flink:run:test"]
-description = "Run test print job"
-run = "docker compose -f docker/docker-compose.yml exec -it jobmanager flink run -c flinkfintechpoc.jobs.TestPrintJob /opt/flink/jobs/flink-jobs-1.0-SNAPSHOT.jar"
 
-[tasks."flink:run:kafka-test"]
-description = "Run Kafka connectivity test job"
-run = "docker compose -f docker/docker-compose.yml exec -it jobmanager flink run -c flinkfintechpoc.jobs.KafkaTestJob /opt/flink/jobs/flink-jobs-1.0-SNAPSHOT.jar"
-
-[tasks."flink:jobs"]
-description = "List running Flink jobs"
-run = "docker compose -f docker/docker-compose.yml exec jobmanager flink list"
-
-[tasks."flink:logs"]
-description = "Show Flink job manager logs"
-run = "docker compose -f docker/docker-compose.yml logs --follow jobmanager"
-
-# =============================================================================
-# DATABASE
-# =============================================================================
-
-[tasks."postgres:connect"]
-description = "Connect to PostgreSQL"
-run = "docker compose -f docker/docker-compose.yml exec -it postgres psql -U postgres -d fintech_demo"
 
 # =============================================================================
 # QUICK START
@@ -85,10 +63,6 @@ run = "docker compose -f docker/docker-compose.yml exec -it postgres psql -U pos
 description = "Complete startup: start services, build and run Flink job"
 depends = ["docker:start", "flink:build", "flink:run"]
 run = "echo 'All services started! Check: Kafka UI (8080), Flink UI (8081), pgAdmin (8082)'"
-
-[tasks."status"]
-description = "Show project status"
-run = "echo '=== DOCKER ===' && docker compose -f docker/docker-compose.yml ps && echo '=== FLINK JOBS ===' && docker compose -f docker/docker-compose.yml exec jobmanager flink list"
 
 # =============================================================================
 # PYTHON APP
