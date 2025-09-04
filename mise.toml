@@ -74,7 +74,7 @@ run = "docker compose -f docker/docker-compose.yml stop fintech-python-app"
 
 [tasks."python:producer:start"]
 description = "Start producer inside container"
-run = "docker compose -f docker/docker-compose.yml exec -d fintech-python-app python main.py start-producer --rate 5 --num-customers 50"
+run = "docker compose -f docker/docker-compose.yml exec -d fintech-python-app python main.py start-producer --rate 10 --num-customers 50"
 
 [tasks."python:container:start"]
 description = "Start only the Python app container"

@@ -787,7 +787,7 @@ docker-compose up -d
 ### **2. Setup Python App:**
 ```bash
 cd app-python
-python main.py run-all --rate 10 --num-customers 100
+python main.py run-all --rate 10 --num-customers 50
 ```
 
 ### **3. Run Flink Job:**

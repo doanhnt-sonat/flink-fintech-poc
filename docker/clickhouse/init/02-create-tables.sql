@@ -23,6 +23,26 @@ CREATE TABLE IF NOT EXISTS customer_lifecycle_metrics (
 ORDER BY (customerId, eventTime)
 PARTITION BY toYYYYMM(eventTime);
 
+-- 1b. Customer Lifecycle Current-State Table (keep only latest row per customer)
+CREATE TABLE IF NOT EXISTS customer_lifecycle_current (
+    customerId String,
+    eventType String,
+    currentTier String,
+    currentKycStatus String,
+    eventTime DateTime,
+    tierChangeCount UInt32,
+    isUpgrade UInt8,
+    isDowngrade UInt8,
+    kycCompleted UInt8,
+    riskScore Float64,
+    timeSinceLastUpdate UInt64,
+    previousTier String,
+    previousKycStatus String,
+    riskScoreChange Float64,
+    processed_at DateTime DEFAULT now()
+) ENGINE = ReplacingMergeTree(processed_at)
+ORDER BY customerId;
+
 -- 2. Merchant Performance Metrics Table
 CREATE TABLE IF NOT EXISTS merchant_performance_metrics (
     merchantId String,

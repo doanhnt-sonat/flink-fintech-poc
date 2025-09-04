@@ -77,7 +77,7 @@ class RealtimeDataProducer:
         self.time_file = "progressive_time.json"
         self.current_base_time = self._load_progressive_time()
         self.last_time_update = None
-        self.time_progression_interval = 3600  # Update base time every hour
+        self.time_progression_interval = 10  # Update base time every 5 seconds
         
         # Initialize data generator's base time immediately
         self.data_generator.base_time = self.current_base_time
@@ -145,11 +145,11 @@ class RealtimeDataProducer:
         if (self.last_time_update is None or 
             (now - self.last_time_update).total_seconds() >= self.time_progression_interval):
             
-            # Advance base time by 1 hour
+            # Advance base time by 1 day
             if self.current_base_time is None:
                 self.current_base_time = datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
             else:
-                self.current_base_time += timedelta(hours=1)
+                self.current_base_time += timedelta(days=1)
             
             # Update data generator's base time
             self.data_generator.base_time = self.current_base_time
@@ -404,20 +404,7 @@ class RealtimeDataProducer:
             logger.error("Failed to store initial data", error=str(e))
             raise
     
-    def _get_time_based_transaction_rate(self) -> float:
-        """Get transaction rate based on time of day (realistic patterns)"""
-        current_hour = datetime.now().hour
-        
-        # Business hours have higher transaction rates
-        if 9 <= current_hour <= 17:  # Business hours
-            return self.production_rate * random.uniform(1.5, 2.0)
-        elif 18 <= current_hour <= 22:  # Evening peak
-            return self.production_rate * random.uniform(1.2, 1.8)
-        elif 6 <= current_hour <= 8:  # Morning
-            return self.production_rate * random.uniform(0.8, 1.2)
-        else:  # Night/early morning
-            return self.production_rate * random.uniform(0.2, 0.5)
-    
+       
     def _select_customer_for_transaction(self) -> Customer:
         """Select customer based on behavioral patterns"""
         # Higher tier customers are more active
@@ -616,7 +603,7 @@ class RealtimeDataProducer:
         """Main transaction generation loop"""
         while self.is_running:
             try:
-                current_rate = self._get_time_based_transaction_rate()
+                current_rate = self.production_rate * random.uniform(0.2, 2.0)
                 interval = 1.0 / current_rate if current_rate > 0 else 1.0
                 
                 await self._generate_and_send_transaction()

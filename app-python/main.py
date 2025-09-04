@@ -111,14 +111,14 @@ def create_parser():
     
     # Start producer command
     producer_parser = subparsers.add_parser('start-producer', help='Start realtime data producer')
-    producer_parser.add_argument('--rate', type=int, default=5,
+    producer_parser.add_argument('--rate', type=int, default=10,
                                 help='Transactions per second')
     producer_parser.add_argument('--num-customers', type=int, default=50,
                                 help='Number of customers to simulate')
     
     # All-in-one command
     all_parser = subparsers.add_parser('run-all', help='Initialize everything and start producer')
-    all_parser.add_argument('--rate', type=int, default=5,
+    all_parser.add_argument('--rate', type=int, default=10,
                            help='Transactions per second')
     all_parser.add_argument('--num-customers', type=int, default=50,
                            help='Number of customers to simulate')

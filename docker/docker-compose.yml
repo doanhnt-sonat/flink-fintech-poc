@@ -247,7 +247,7 @@ services:
     volumes:
       - ../app-python:/app
     working_dir: /app
-    command: ["python", "main.py", "run-all", "--rate", "5", "--num-customers", "50"]
+    command: ["python", "main.py", "run-all", "--rate", "10", "--num-customers", "100"]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import psycopg2; psycopg2.connect('postgresql://postgres:postgres@postgres:5432/fintech_demo').close()"]

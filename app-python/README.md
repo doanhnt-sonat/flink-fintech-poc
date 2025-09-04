@@ -88,7 +88,7 @@ python main.py start-producer --rate 10 --num-customers 50
 
 5. **Chạy tất cả (recommended):**
 ```bash
-python main.py run-all --rate 5 --num-customers 100
+python main.py run-all --rate 10 --num-customers 50
 ```
 
 ### Environment Variables

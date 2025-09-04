@@ -8,6 +8,7 @@ import org.apache.flink.api.common.typeinfo.TypeHint;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.common.functions.OpenContext;
 import org.apache.flink.streaming.api.functions.co.KeyedBroadcastProcessFunction;
+import org.apache.flink.api.java.tuple.Tuple2;
 
 import org.apache.flink.util.Collector;
 import org.slf4j.Logger;
@@ -35,13 +36,10 @@ public class CustomerFraudDetectionProcessor extends KeyedBroadcastProcessFuncti
     
     // State for fraud detection patterns
     private ValueState<List<Transaction>> recentTransactions;
-    private ValueState<Map<String, Integer>> locationCounts;
-    private ValueState<Map<String, Integer>> deviceCounts;
-    private ValueState<BigDecimal> totalAmount24h;
-    private ValueState<Integer> transactionCount24h;
+    private ListState<Tuple2<Long, BigDecimal>> rolling24hTransactionEntries;
+    private ListState<Tuple2<Long, String>> rollingLocationEntries24h;
+    private ListState<Tuple2<Long, String>> rollingDeviceEntries24h;
     private ValueState<Date> lastTransactionTime;
-    private ValueState<Boolean> isHighRiskCustomer;
-    private ValueState<Map<String, Object>> customerProfile;
     
     // Fraud detection thresholds
     private static final BigDecimal HIGH_AMOUNT_THRESHOLD = new BigDecimal("10000.00");
@@ -60,29 +58,22 @@ public class CustomerFraudDetectionProcessor extends KeyedBroadcastProcessFuncti
         );
         recentTransactions = getRuntimeContext().getState(transactionsDescriptor);
         
-        ValueStateDescriptor<Map<String, Integer>> locationDescriptor = new ValueStateDescriptor<>(
-            "location-counts",
-            TypeInformation.of(new TypeHint<Map<String, Integer>>() {})
-        );
-        locationCounts = getRuntimeContext().getState(locationDescriptor);
         
-        ValueStateDescriptor<Map<String, Integer>> deviceDescriptor = new ValueStateDescriptor<>(
-            "device-counts",
-            TypeInformation.of(new TypeHint<Map<String, Integer>>() {})
+        ListStateDescriptor<Tuple2<Long, BigDecimal>> rolling24hDesc = new ListStateDescriptor<>(
+            "rolling-24h-entries",
+            TypeInformation.of(new TypeHint<Tuple2<Long, BigDecimal>>() {})
         );
-        deviceCounts = getRuntimeContext().getState(deviceDescriptor);
-        
-        ValueStateDescriptor<BigDecimal> amountDescriptor = new ValueStateDescriptor<>(
-            "total-amount-24h",
-            BigDecimal.class
+        rolling24hTransactionEntries = getRuntimeContext().getListState(rolling24hDesc);
+        ListStateDescriptor<Tuple2<Long, String>> rollingLocDesc = new ListStateDescriptor<>(
+            "rolling-24h-locations",
+            TypeInformation.of(new TypeHint<Tuple2<Long, String>>() {})
         );
-        totalAmount24h = getRuntimeContext().getState(amountDescriptor);
-        
-        ValueStateDescriptor<Integer> countDescriptor = new ValueStateDescriptor<>(
-            "transaction-count-24h",
-            Integer.class
+        rollingLocationEntries24h = getRuntimeContext().getListState(rollingLocDesc);
+        ListStateDescriptor<Tuple2<Long, String>> rollingDevDesc = new ListStateDescriptor<>(
+            "rolling-24h-devices",
+            TypeInformation.of(new TypeHint<Tuple2<Long, String>>() {})
         );
-        transactionCount24h = getRuntimeContext().getState(countDescriptor);
+        rollingDeviceEntries24h = getRuntimeContext().getListState(rollingDevDesc);
         
         ValueStateDescriptor<Date> timeDescriptor = new ValueStateDescriptor<>(
             "last-transaction-time",
@@ -90,23 +81,13 @@ public class CustomerFraudDetectionProcessor extends KeyedBroadcastProcessFuncti
         );
         lastTransactionTime = getRuntimeContext().getState(timeDescriptor);
         
-        ValueStateDescriptor<Boolean> riskDescriptor = new ValueStateDescriptor<>(
-            "is-high-risk-customer",
-            Boolean.class
-        );
-        isHighRiskCustomer = getRuntimeContext().getState(riskDescriptor);
         
-        ValueStateDescriptor<Map<String, Object>> profileDescriptor = new ValueStateDescriptor<>(
-            "customer-profile",
-            TypeInformation.of(new TypeHint<Map<String, Object>>() {})
-        );
-        customerProfile = getRuntimeContext().getState(profileDescriptor);
     }
     
     @Override
     public void processElement(Transaction transaction, ReadOnlyContext ctx, Collector<FraudDetectionResult> out) throws Exception {
         String customerId = transaction.getCustomerId();
-        Date currentTime = new Date();
+        Date currentTime = transaction.getCreatedAt();
         
         // Get account info from broadcast state
         ReadOnlyBroadcastState<String, Account> accountState = ctx.getBroadcastState(ACCOUNT_STATE_DESCRIPTOR);
@@ -122,6 +103,8 @@ public class CustomerFraudDetectionProcessor extends KeyedBroadcastProcessFuncti
         
         // Update transaction history
         updateTransactionHistory(transaction, currentTime);
+        // Update rolling 24h metrics (sum/count)
+        updateRolling24hMetrics(currentTime, transaction.getAmount());
         
         // Perform comprehensive fraud detection with account data
         FraudDetectionResult result = performFraudDetection(transaction, account, currentTime);
@@ -132,8 +115,7 @@ public class CustomerFraudDetectionProcessor extends KeyedBroadcastProcessFuncti
                     customerId, result.getFraudTypes(), result.getRiskScore());
         }
         
-        // Update customer profile for future analysis
-        updateCustomerProfile(transaction, currentTime);
+        // Removed customer profile updates
     }
     
     @Override
@@ -149,53 +131,28 @@ public class CustomerFraudDetectionProcessor extends KeyedBroadcastProcessFuncti
         if (recentTransactions.value() == null) {
             recentTransactions.update(new ArrayList<>());
         }
-        if (locationCounts.value() == null) {
-            locationCounts.update(new HashMap<>());
-        }
-        if (deviceCounts.value() == null) {
-            deviceCounts.update(new HashMap<>());
-        }
-        if (totalAmount24h.value() == null) {
-            totalAmount24h.update(BigDecimal.ZERO);
-        }
-        if (transactionCount24h.value() == null) {
-            transactionCount24h.update(0);
-        }
+        
         if (lastTransactionTime.value() == null) {
             lastTransactionTime.update(currentTime);
         }
-        if (isHighRiskCustomer.value() == null) {
-            isHighRiskCustomer.update(false);
-        }
-        if (customerProfile.value() == null) {
-            Map<String, Object> profile = new HashMap<>();
-            profile.put("firstTransaction", currentTime);
-            profile.put("totalTransactions", 0);
-            profile.put("averageAmount", BigDecimal.ZERO);
-            customerProfile.update(profile);
-        }
+        
     }
     
     private void updateTransactionHistory(Transaction transaction, Date currentTime) throws Exception {
         List<Transaction> transactions = recentTransactions.value();
-        Map<String, Integer> locations = locationCounts.value();
-        Map<String, Integer> devices = deviceCounts.value();
         
         // Add current transaction
         transactions.add(transaction);
         
-        // Update location counts
+        // Update rolling 24h location/device entries (for true 24h counts)
         if (transaction.getTransactionLocation() != null) {
             String country = (String) transaction.getTransactionLocation().get("country");
             if (country != null) {
-                locations.put(country, locations.getOrDefault(country, 0) + 1);
+                appendRollingValue(currentTime, country, rollingLocationEntries24h);
             }
         }
-        
-        // Update device counts
         if (transaction.getDeviceFingerprint() != null) {
-            devices.put(transaction.getDeviceFingerprint(), 
-                       devices.getOrDefault(transaction.getDeviceFingerprint(), 0) + 1);
+            appendRollingValue(currentTime, transaction.getDeviceFingerprint(), rollingDeviceEntries24h);
         }
         
         // Clean up old transactions (keep last 100)
@@ -205,22 +162,19 @@ public class CustomerFraudDetectionProcessor extends KeyedBroadcastProcessFuncti
         
         // Update state
         recentTransactions.update(transactions);
-        locationCounts.update(locations);
-        deviceCounts.update(devices);
     }
     
     private FraudDetectionResult performFraudDetection(Transaction transaction, Account account, Date currentTime) throws Exception {
         List<Transaction> transactions = recentTransactions.value();
-        Map<String, Integer> locations = locationCounts.value();
-        Map<String, Integer> devices = deviceCounts.value();
-        BigDecimal totalAmount = totalAmount24h.value();
-        Integer transactionCount = transactionCount24h.value();
+        // legacy counters removed; use rolling lists instead (computed later)
+        Tuple2<BigDecimal, Integer> amountStats = computeRollingAmountStats(currentTime);
+        BigDecimal totalAmount = amountStats.f0;
+        Integer transactionCount = amountStats.f1;
         Date lastTime = lastTransactionTime.value();
-        Boolean isHighRisk = isHighRiskCustomer.value();
         
-        // Update 24h counters
-        totalAmount = totalAmount.add(transaction.getAmount());
-        transactionCount++;
+        // 24h counters computed from rolling entries
+        if (totalAmount == null) totalAmount = BigDecimal.ZERO;
+        if (transactionCount == null) transactionCount = 0;
         
         // Check for various fraud patterns
         List<String> fraudTypes = new ArrayList<>();
@@ -248,13 +202,15 @@ public class CustomerFraudDetectionProcessor extends KeyedBroadcastProcessFuncti
             riskScore += 25.0;
         }
         
-        // 4. Multiple locations in short time
+        // 4. Multiple locations in short time (24h unique count)
+        Map<String, Integer> locations = computeRollingCounts(currentTime, rollingLocationEntries24h);
         if (locations.size() > MAX_LOCATIONS_PER_DAY) {
             fraudTypes.add("MULTIPLE_LOCATIONS");
             riskScore += 20.0;
         }
         
-        // 5. Multiple devices
+        // 5. Multiple devices (24h unique count)
+        Map<String, Integer> devices = computeRollingCounts(currentTime, rollingDeviceEntries24h);
         if (devices.size() > MAX_DEVICES_PER_DAY) {
             fraudTypes.add("MULTIPLE_DEVICES");
             riskScore += 15.0;
@@ -275,10 +231,7 @@ public class CustomerFraudDetectionProcessor extends KeyedBroadcastProcessFuncti
             riskScore += 20.0;
         }
         
-        // 8. High risk customer
-        if (isHighRisk) {
-            riskScore += 15.0;
-        }
+        // 8. High risk customer (removed profile-based adjustment)
         
         // 9. Account-based fraud detection
         if (account.isFrozen()) {
@@ -297,9 +250,7 @@ public class CustomerFraudDetectionProcessor extends KeyedBroadcastProcessFuncti
             riskScore += 25.0;
         }
         
-        // Update state
-        totalAmount24h.update(totalAmount);
-        transactionCount24h.update(transactionCount);
+        // Update state (last transaction time only)
         lastTransactionTime.update(currentTime);
         
         // Create fraud detection result
@@ -346,26 +297,72 @@ public class CustomerFraudDetectionProcessor extends KeyedBroadcastProcessFuncti
         return details;
     }
     
-    private void updateCustomerProfile(Transaction transaction, Date currentTime) throws Exception {
-        Map<String, Object> profile = customerProfile.value();
-        
-        int totalTransactions = (Integer) profile.get("totalTransactions") + 1;
-        BigDecimal averageAmount = (BigDecimal) profile.get("averageAmount");
-        
-        // Update average amount
-        BigDecimal newAverage = averageAmount.multiply(BigDecimal.valueOf(totalTransactions - 1))
-            .add(transaction.getAmount())
-            .divide(BigDecimal.valueOf(totalTransactions), 2, java.math.RoundingMode.HALF_UP);
-        
-        profile.put("totalTransactions", totalTransactions);
-        profile.put("averageAmount", newAverage);
-        profile.put("lastTransaction", currentTime);
-        
-        // Mark as high risk if certain conditions are met
-        if (totalTransactions > 50 && newAverage.compareTo(new BigDecimal("5000")) > 0) {
-            isHighRiskCustomer.update(true);
+    
+
+    private void updateRolling24hMetrics(Date currentTime, BigDecimal amount) throws Exception {
+        // no-op: rolling stats computed on demand; keep entries trimmed
+
+        long nowTs = currentTime.getTime();
+        long cutoff = nowTs - 24L * 60L * 60L * 1000L;
+
+        // Load existing entries
+        List<Tuple2<Long, BigDecimal>> entries = new ArrayList<>();
+        for (Tuple2<Long, BigDecimal> e : rolling24hTransactionEntries.get()) {
+            entries.add(e);
         }
-        
-        customerProfile.update(profile);
+
+        // Append current
+        entries.add(Tuple2.of(nowTs, amount));
+
+        // Prune and recompute
+        // compute lazily in computeRollingAmountStats
+        List<Tuple2<Long, BigDecimal>> pruned = new ArrayList<>();
+        for (Tuple2<Long, BigDecimal> e : entries) {
+            if (e.f0 >= cutoff) {
+                pruned.add(e);
+            }
+        }
+
+        // After pruning, compute stats lazily when needed
+        rolling24hTransactionEntries.update(pruned);
+    }
+
+    private Tuple2<BigDecimal, Integer> computeRollingAmountStats(Date currentTime) throws Exception {
+        long nowTs = currentTime.getTime();
+        long cutoff = nowTs - 24L * 60L * 60L * 1000L;
+        BigDecimal sum = BigDecimal.ZERO;
+        int count = 0;
+        for (Tuple2<Long, BigDecimal> e : rolling24hTransactionEntries.get()) {
+            if (e.f0 >= cutoff) {
+                sum = sum.add(e.f1);
+                count++;
+            }
+        }
+        return Tuple2.of(sum, count);
+    }
+
+    private void appendRollingValue(Date currentTime, String value, ListState<Tuple2<Long, String>> target) throws Exception {
+        long nowTs = currentTime.getTime();
+        long cutoff = nowTs - 24L * 60L * 60L * 1000L;
+
+        List<Tuple2<Long, String>> entries = new ArrayList<>();
+        for (Tuple2<Long, String> e : target.get()) entries.add(e);
+        entries.add(Tuple2.of(nowTs, value));
+
+        List<Tuple2<Long, String>> pruned = new ArrayList<>();
+        for (Tuple2<Long, String> e : entries) if (e.f0 >= cutoff) pruned.add(e);
+        target.update(pruned);
+    }
+
+    private Map<String, Integer> computeRollingCounts(Date currentTime, ListState<Tuple2<Long, String>> source) throws Exception {
+        long nowTs = currentTime.getTime();
+        long cutoff = nowTs - 24L * 60L * 60L * 1000L;
+        Map<String, Integer> counts = new HashMap<>();
+        for (Tuple2<Long, String> e : source.get()) {
+            if (e.f0 >= cutoff && e.f1 != null) {
+                counts.put(e.f1, counts.getOrDefault(e.f1, 0) + 1);
+            }
+        }
+        return counts;
     }
 }

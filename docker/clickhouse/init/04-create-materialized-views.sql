@@ -22,6 +22,27 @@ SELECT
     now() as processed_at
 FROM customer_lifecycle_kafka;
 
+-- 1b. MV to maintain latest customer lifecycle snapshot (ReplacingMergeTree)
+CREATE MATERIALIZED VIEW IF NOT EXISTS customer_lifecycle_current_mv
+TO fintech_analytics.customer_lifecycle_current AS
+SELECT
+    customerId,
+    eventType,
+    currentTier,
+    currentKycStatus,
+    parseDateTimeBestEffort(eventTime) as eventTime,
+    tierChangeCount,
+    toUInt8(isUpgrade)   AS isUpgrade,
+    toUInt8(isDowngrade) AS isDowngrade,
+    toUInt8(kycCompleted) AS kycCompleted,
+    riskScore,
+    timeSinceLastUpdate,
+    previousTier,
+    previousKycStatus,
+    riskScoreChange,
+    now() as processed_at
+FROM customer_lifecycle_kafka;
+
 -- 2. Materialized View for Merchant Performance Metrics
 CREATE MATERIALIZED VIEW IF NOT EXISTS merchant_performance_mv TO merchant_performance_metrics AS
 SELECT
