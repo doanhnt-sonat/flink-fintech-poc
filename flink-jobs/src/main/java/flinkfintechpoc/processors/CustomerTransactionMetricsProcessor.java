@@ -1,10 +1,6 @@
 package flinkfintechpoc.processors;
 
-import flinkfintechpoc.models.Transaction;
 import flinkfintechpoc.models.TransactionMetrics;
-import org.apache.flink.api.common.state.*;
-import org.apache.flink.api.common.typeinfo.TypeHint;
-import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.common.functions.OpenContext;
 import org.apache.flink.streaming.api.functions.windowing.ProcessWindowFunction;
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
@@ -16,205 +12,74 @@ import java.math.BigDecimal;
 import java.util.*;
 
 /**
- * Customer Transaction Metrics Processor - Demonstrates Windowed Processing and State Management
- * Covers: Windowed aggregations, State management, Custom triggers, Event time processing
+ * Customer Transaction Metrics Processor - Optimized with AggregateFunction + ProcessWindowFunction
+ * Uses incremental aggregation to handle large windows efficiently
  * Analyzes transaction metrics for each customer within time windows
  */
-public class CustomerTransactionMetricsProcessor extends ProcessWindowFunction<Transaction, TransactionMetrics, String, TimeWindow> {
+public class CustomerTransactionMetricsProcessor extends ProcessWindowFunction<TransactionAggregator.TransactionAccumulator, TransactionMetrics, String, TimeWindow> {
     
     private static final Logger LOG = LoggerFactory.getLogger(CustomerTransactionMetricsProcessor.class);
     
-    // Window state for transaction metrics
-    private ValueState<BigDecimal> totalAmount;
-    private ValueState<Integer> transactionCount;
-    private ValueState<BigDecimal> minAmount;
-    private ValueState<BigDecimal> maxAmount;
-    private ValueState<Map<String, Integer>> transactionTypeCounts;
-    private ValueState<Map<String, Integer>> locationCounts;
-    private ValueState<Map<String, Integer>> deviceCounts;
+    // No keyed state needed for window processing - use local variables instead
     
     @Override
     public void open(OpenContext openContext) throws Exception {
-        // Initialize window state descriptors
-        ValueStateDescriptor<BigDecimal> totalAmountDescriptor = new ValueStateDescriptor<>(
-            "total-amount",
-            BigDecimal.class
-        );
-        totalAmount = getRuntimeContext().getState(totalAmountDescriptor);
-        
-        ValueStateDescriptor<Integer> countDescriptor = new ValueStateDescriptor<>(
-            "transaction-count",
-            Integer.class
-        );
-        transactionCount = getRuntimeContext().getState(countDescriptor);
-        
-        ValueStateDescriptor<BigDecimal> minAmountDescriptor = new ValueStateDescriptor<>(
-            "min-amount",
-            BigDecimal.class
-        );
-        minAmount = getRuntimeContext().getState(minAmountDescriptor);
-        
-        ValueStateDescriptor<BigDecimal> maxAmountDescriptor = new ValueStateDescriptor<>(
-            "max-amount",
-            BigDecimal.class
-        );
-        maxAmount = getRuntimeContext().getState(maxAmountDescriptor);
-        
-        ValueStateDescriptor<Map<String, Integer>> typeCountsDescriptor = new ValueStateDescriptor<>(
-            "transaction-type-counts",
-            TypeInformation.of(new TypeHint<Map<String, Integer>>() {})
-        );
-        transactionTypeCounts = getRuntimeContext().getState(typeCountsDescriptor);
-        
-        ValueStateDescriptor<Map<String, Integer>> locationCountsDescriptor = new ValueStateDescriptor<>(
-            "location-counts",
-            TypeInformation.of(new TypeHint<Map<String, Integer>>() {})
-        );
-        locationCounts = getRuntimeContext().getState(locationCountsDescriptor);
-        
-        ValueStateDescriptor<Map<String, Integer>> deviceCountsDescriptor = new ValueStateDescriptor<>(
-            "device-counts",
-            TypeInformation.of(new TypeHint<Map<String, Integer>>() {})
-        );
-        deviceCounts = getRuntimeContext().getState(deviceCountsDescriptor);
+        // No state initialization needed - using local variables for window processing
     }
     
     @Override
-    public void process(String customerId, Context context, Iterable<Transaction> transactions, Collector<TransactionMetrics> out) throws Exception {
+    public void process(String customerId, Context context, Iterable<TransactionAggregator.TransactionAccumulator> accumulators, Collector<TransactionMetrics> out) throws Exception {
         LOG.info("Processing window for customer: {}, window: {} - {}", 
                 customerId, context.window().getStart(), context.window().getEnd());
         
-        // Initialize window state
-        initializeWindowState();
+        // Get the aggregated accumulator (should be only one due to aggregation)
+        TransactionAggregator.TransactionAccumulator accumulator = accumulators.iterator().next();
         
-        int transactionCountInWindow = 0;
-        // Process all transactions in the window
-        for (Transaction transaction : transactions) {
-            updateTransactionMetrics(transaction);
-            transactionCountInWindow++;
-            LOG.debug("Processing transaction {} for customer {}: amount={}", 
-                    transaction.getId(), customerId, transaction.getAmount());
-        }
-        
-        LOG.info("Found {} transactions in window for customer {}", transactionCountInWindow, customerId);
+        LOG.info("Found {} transactions in window for customer {}", accumulator.transactionCount, customerId);
         
         // Generate final metrics for the window
-        TransactionMetrics metrics = generateWindowMetrics(customerId, context.window().getEnd());
+        TransactionMetrics metrics = generateWindowMetrics(customerId, context.window(), accumulator);
         out.collect(metrics);
         
         LOG.info("Emitted TransactionMetrics for customer {}: {} transactions, total: ${}, min: ${}, max: ${}", 
-                customerId, transactionCount.value(), totalAmount.value(), 
+                customerId, accumulator.transactionCount, accumulator.totalAmount, 
                 metrics.getMinAmount(), metrics.getMaxAmount());
     }
     
-    private void initializeWindowState() throws Exception {
-        if (totalAmount.value() == null) {
-            totalAmount.update(BigDecimal.ZERO);
-        }
-        if (transactionCount.value() == null) {
-            transactionCount.update(0);
-        }
-        if (minAmount.value() == null) {
-            minAmount.update(null); // Initialize as null, not ZERO
-        }
-        if (maxAmount.value() == null) {
-            maxAmount.update(null); // Initialize as null, not ZERO
-        }
-        if (transactionTypeCounts.value() == null) {
-            transactionTypeCounts.update(new HashMap<>());
-        }
-        if (locationCounts.value() == null) {
-            locationCounts.update(new HashMap<>());
-        }
-        if (deviceCounts.value() == null) {
-            deviceCounts.update(new HashMap<>());
-        }
-    }
-    
-    private void updateTransactionMetrics(Transaction transaction) throws Exception {
-        BigDecimal currentTotal = totalAmount.value();
-        Integer currentCount = transactionCount.value();
-        BigDecimal currentMin = minAmount.value();
-        BigDecimal currentMax = maxAmount.value();
-        Map<String, Integer> typeCounts = transactionTypeCounts.value();
-        Map<String, Integer> locationCounts = this.locationCounts.value();
-        Map<String, Integer> deviceCounts = this.deviceCounts.value();
-        
-        // Update basic metrics
-        BigDecimal amount = transaction.getAmount();
-        currentTotal = currentTotal.add(amount);
-        currentCount++;
-        
-        // Update min/max - Fix logic for proper min/max calculation
-        if (currentMin == null || amount.compareTo(currentMin) < 0) {
-            currentMin = amount;
-        }
-        if (currentMax == null || amount.compareTo(currentMax) > 0) {
-            currentMax = amount;
-        }
-        
-        // Update transaction type counts
-        String transactionType = transaction.getTransactionType();
-        typeCounts.put(transactionType, typeCounts.getOrDefault(transactionType, 0) + 1);
-        
-        // Update location counts
-        if (transaction.getTransactionLocation() != null) {
-            String country = (String) transaction.getTransactionLocation().get("country");
-            if (country != null) {
-                locationCounts.put(country, locationCounts.getOrDefault(country, 0) + 1);
-            }
-        }
-        
-        // Update device counts
-        if (transaction.getDeviceFingerprint() != null) {
-            deviceCounts.put(transaction.getDeviceFingerprint(), 
-                           deviceCounts.getOrDefault(transaction.getDeviceFingerprint(), 0) + 1);
-        }
-        
-        // Update state
-        totalAmount.update(currentTotal);
-        transactionCount.update(currentCount);
-        minAmount.update(currentMin);
-        maxAmount.update(currentMax);
-        transactionTypeCounts.update(typeCounts);
-        this.locationCounts.update(locationCounts);
-        this.deviceCounts.update(deviceCounts);
-    }
-    
-    private TransactionMetrics generateWindowMetrics(String customerId, long windowEnd) throws Exception {
-        BigDecimal total = totalAmount.value();
-        Integer count = transactionCount.value();
-        BigDecimal min = minAmount.value();
-        BigDecimal max = maxAmount.value();
-        Map<String, Integer> typeCounts = transactionTypeCounts.value();
-        Map<String, Integer> locationCounts = this.locationCounts.value();
-        Map<String, Integer> deviceCounts = this.deviceCounts.value();
+    private TransactionMetrics generateWindowMetrics(String customerId, TimeWindow window, 
+            TransactionAggregator.TransactionAccumulator accumulator) throws Exception {
         
         // Handle null min/max values
-        if (min == null) min = BigDecimal.ZERO;
-        if (max == null) max = BigDecimal.ZERO;
+        BigDecimal minAmount = accumulator.minAmount;
+        BigDecimal maxAmount = accumulator.maxAmount;
+        if (minAmount == null) minAmount = BigDecimal.ZERO;
+        if (maxAmount == null) maxAmount = BigDecimal.ZERO;
         
         // Calculate derived metrics
-        BigDecimal averageAmount = count > 0 ? total.divide(BigDecimal.valueOf(count), 2, java.math.RoundingMode.HALF_UP) : BigDecimal.ZERO;
-        String preferredTransactionType = findPreferredTransactionType(typeCounts);
-        String preferredLocation = findPreferredLocation(locationCounts);
-        String preferredDevice = findPreferredDevice(deviceCounts);
+        BigDecimal averageAmount = accumulator.transactionCount > 0 ? 
+            accumulator.totalAmount.divide(BigDecimal.valueOf(accumulator.transactionCount), 2, java.math.RoundingMode.HALF_UP) : 
+            BigDecimal.ZERO;
+        String preferredTransactionType = findPreferredTransactionType(accumulator.transactionTypeCounts);
+        String preferredLocation = findPreferredLocation(accumulator.locationCounts);
+        String preferredDevice = findPreferredDevice(accumulator.deviceCounts);
         
-        // Calculate transaction velocity (transactions per hour)
-        double transactionVelocity = count > 0 ? count * 12.0 : 0.0; // 5-minute window * 12 = 1 hour
+        // Calculate transaction velocity (transactions per hour) - FIXED!
+        long windowDurationMillis = window.getEnd() - window.getStart();
+        double transactionVelocity = windowDurationMillis > 0 ? 
+            (accumulator.transactionCount * 3600000.0) / windowDurationMillis : 0.0; // Correct calculation
         
         // Calculate risk indicators
-        double riskScore = calculateSimpleRiskScore(total, count, min, max);
+        double riskScore = calculateSimpleRiskScore(accumulator.totalAmount, accumulator.transactionCount, minAmount, maxAmount);
         
         // Create metrics
         TransactionMetrics metrics = new TransactionMetrics(
             customerId,
-            new Date(windowEnd),
-            total,
-            count,
+            new Date(window.getEnd()),
+            accumulator.totalAmount,
+            accumulator.transactionCount,
             averageAmount,
-            min,
-            max,
+            minAmount,
+            maxAmount,
             preferredTransactionType,
             preferredLocation,
             preferredDevice,
@@ -223,12 +88,12 @@ public class CustomerTransactionMetricsProcessor extends ProcessWindowFunction<T
         );
         
         // Set additional metrics
-        metrics.setTransactionTypeCounts(typeCounts);
-        metrics.setLocationCounts(locationCounts);
-        metrics.setDeviceCounts(deviceCounts);
-        metrics.setRecentTransactionCount(count);
-        metrics.setLastTransactionAmount(max); // Use max as last transaction amount for window
-        metrics.setLastTransactionType(preferredTransactionType);
+        metrics.setTransactionTypeCounts(accumulator.transactionTypeCounts);
+        metrics.setLocationCounts(accumulator.locationCounts);
+        metrics.setDeviceCounts(accumulator.deviceCounts);
+        metrics.setRecentTransactionCount(accumulator.transactionCount);
+        metrics.setLastTransactionAmount(accumulator.lastTransactionAmount); // FIXED: Use actual last transaction
+        metrics.setLastTransactionType(accumulator.lastTransactionType); // FIXED: Use actual last transaction type
         
         return metrics;
     }

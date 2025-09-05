@@ -8,8 +8,6 @@ import org.apache.flink.api.common.state.MapStateDescriptor;
 import org.apache.flink.api.common.state.ReadOnlyBroadcastState;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
-import org.apache.flink.api.common.state.ListState;
-import org.apache.flink.api.common.state.ListStateDescriptor;
 import org.apache.flink.api.common.typeinfo.TypeHint;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.common.functions.OpenContext;
@@ -22,8 +20,8 @@ import java.math.BigDecimal;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Queue;
+import java.util.LinkedList;
 
 /**
  * Customer Lifecycle Processor - Step 2 of Cascade Pattern
@@ -44,51 +42,29 @@ public class CustomerLifecycleProcessor extends KeyedBroadcastProcessFunction<St
         );
     
     // State to track customer lifecycle based on enriched transactions
-    private ValueState<Map<String, Object>> customerProfile;
-    private ValueState<BigDecimal> totalTransactionAmount;
-    private ValueState<Integer> transactionCount;
-    private ValueState<Date> firstTransactionTime;
-    private ValueState<Date> lastTransactionTime;
+    private ValueState<BigDecimal> totalAmount;
+    private ValueState<Integer> totalTransactions;
     private ValueState<String> currentTier;
     private ValueState<String> currentKycStatus;
     private ValueState<Map<String, Object>> sessionMetrics;
     // Last-20 transactions average for tier calculation
-    private ListState<BigDecimal> last20TransactionAmounts;
+    private ValueState<Queue<BigDecimal>> last20TransactionAmounts;
     private ValueState<BigDecimal> last20Sum;
-    private ValueState<Integer> last20Count;
     
     @Override
     public void open(OpenContext openContext) throws Exception {
         // Initialize state descriptors for customer lifecycle tracking
-        ValueStateDescriptor<Map<String, Object>> profileDescriptor = new ValueStateDescriptor<>(
-            "customer-profile",
-            TypeInformation.of(new TypeHint<Map<String, Object>>() {})
-        );
-        customerProfile = getRuntimeContext().getState(profileDescriptor);
-        
-        ValueStateDescriptor<BigDecimal> amountDescriptor = new ValueStateDescriptor<>(
-            "total-transaction-amount",
+        ValueStateDescriptor<BigDecimal> totalAmountDescriptor = new ValueStateDescriptor<>(
+            "total-amount",
             BigDecimal.class
         );
-        totalTransactionAmount = getRuntimeContext().getState(amountDescriptor);
+        totalAmount = getRuntimeContext().getState(totalAmountDescriptor);
         
-        ValueStateDescriptor<Integer> countDescriptor = new ValueStateDescriptor<>(
-            "transaction-count",
+        ValueStateDescriptor<Integer> totalTransactionsDescriptor = new ValueStateDescriptor<>(
+            "total-transactions",
             Integer.class
         );
-        transactionCount = getRuntimeContext().getState(countDescriptor);
-        
-        ValueStateDescriptor<Date> firstTimeDescriptor = new ValueStateDescriptor<>(
-            "first-transaction-time",
-            TypeInformation.of(new TypeHint<Date>() {})
-        );
-        firstTransactionTime = getRuntimeContext().getState(firstTimeDescriptor);
-        
-        ValueStateDescriptor<Date> lastTimeDescriptor = new ValueStateDescriptor<>(
-            "last-transaction-time",
-            TypeInformation.of(new TypeHint<Date>() {})
-        );
-        lastTransactionTime = getRuntimeContext().getState(lastTimeDescriptor);
+        totalTransactions = getRuntimeContext().getState(totalTransactionsDescriptor);
         
         ValueStateDescriptor<String> tierDescriptor = new ValueStateDescriptor<>(
             "current-tier",
@@ -108,27 +84,24 @@ public class CustomerLifecycleProcessor extends KeyedBroadcastProcessFunction<St
         );
         sessionMetrics = getRuntimeContext().getState(sessionDescriptor);
         // Initialize last-20 transaction amounts state
-        ListStateDescriptor<BigDecimal> last20Desc = new ListStateDescriptor<>(
+        ValueStateDescriptor<Queue<BigDecimal>> last20Desc = new ValueStateDescriptor<>(
             "last-20-transaction-amounts",
-            BigDecimal.class
+            TypeInformation.of(new TypeHint<Queue<BigDecimal>>() {})
         );
-        last20TransactionAmounts = getRuntimeContext().getListState(last20Desc);
+        last20TransactionAmounts = getRuntimeContext().getState(last20Desc);
+        
+        
         ValueStateDescriptor<BigDecimal> last20SumDesc = new ValueStateDescriptor<>(
             "last-20-sum",
             BigDecimal.class
         );
         last20Sum = getRuntimeContext().getState(last20SumDesc);
-        ValueStateDescriptor<Integer> last20CountDesc = new ValueStateDescriptor<>(
-            "last-20-count",
-            Integer.class
-        );
-        last20Count = getRuntimeContext().getState(last20CountDesc);
     }
     
     @Override
     public void processElement(EnrichedTransaction enrichedTransaction, ReadOnlyContext ctx, Collector<CustomerLifecycleMetrics> out) throws Exception {
         String customerId = enrichedTransaction.getCustomerId();
-        Date currentTime = new Date();
+        Date currentTime = enrichedTransaction.getCreatedAt();
         
         // Get session info from broadcast state
         ReadOnlyBroadcastState<String, CustomerSession> sessionState = ctx.getBroadcastState(SESSION_STATE_DESCRIPTOR);
@@ -168,25 +141,11 @@ public class CustomerLifecycleProcessor extends KeyedBroadcastProcessFunction<St
     }
     
     private void initializeStateIfNeeded(String customerId, Date currentTime) throws Exception {
-        if (customerProfile.value() == null) {
-            Map<String, Object> profile = new HashMap<>();
-            profile.put("customerId", customerId);
-            profile.put("firstTransaction", currentTime);
-            profile.put("totalTransactions", 0);
-            profile.put("totalAmount", BigDecimal.ZERO);
-            customerProfile.update(profile);
+        if (totalAmount.value() == null) {
+            totalAmount.update(BigDecimal.ZERO);
         }
-        if (totalTransactionAmount.value() == null) {
-            totalTransactionAmount.update(BigDecimal.ZERO);
-        }
-        if (transactionCount.value() == null) {
-            transactionCount.update(0);
-        }
-        if (firstTransactionTime.value() == null) {
-            firstTransactionTime.update(currentTime);
-        }
-        if (lastTransactionTime.value() == null) {
-            lastTransactionTime.update(currentTime);
+        if (totalTransactions.value() == null) {
+            totalTransactions.update(0);
         }
         if (currentTier.value() == null) {
             currentTier.update("basic");
@@ -205,20 +164,12 @@ public class CustomerLifecycleProcessor extends KeyedBroadcastProcessFunction<St
     }
     
     private void updateTransactionMetrics(EnrichedTransaction enrichedTransaction, Date currentTime) throws Exception {
-        BigDecimal currentTotal = totalTransactionAmount.value();
-        Integer currentCount = transactionCount.value();
+        // Update transaction metrics directly
+        BigDecimal currentTotal = totalAmount.value();
+        Integer currentCount = totalTransactions.value();
         
-        // Update transaction metrics
-        totalTransactionAmount.update(currentTotal.add(enrichedTransaction.getAmount()));
-        transactionCount.update(currentCount + 1);
-        lastTransactionTime.update(currentTime);
-        
-        // Update customer profile
-        Map<String, Object> profile = customerProfile.value();
-        profile.put("totalTransactions", currentCount + 1);
-        profile.put("totalAmount", currentTotal.add(enrichedTransaction.getAmount()));
-        profile.put("lastTransaction", currentTime);
-        customerProfile.update(profile);
+        totalAmount.update(currentTotal.add(enrichedTransaction.getAmount()));
+        totalTransactions.update(currentCount + 1);
     }
     
     private void updateSessionMetrics(CustomerSession session, Date currentTime) throws Exception {
@@ -238,8 +189,8 @@ public class CustomerLifecycleProcessor extends KeyedBroadcastProcessFunction<St
     }
     
     private CustomerLifecycleMetrics analyzeCustomerLifecycle(EnrichedTransaction enrichedTransaction, CustomerSession session, Date currentTime) throws Exception {
-        BigDecimal totalAmount = totalTransactionAmount.value();
-        Integer count = transactionCount.value();
+        BigDecimal totalAmountValue = totalAmount.value();
+        Integer count = totalTransactions.value();
         String currentTierValue = currentTier.value();
         String currentKycValue = currentKycStatus.value();
         Map<String, Object> sessionData = sessionMetrics.value();
@@ -265,7 +216,7 @@ public class CustomerLifecycleProcessor extends KeyedBroadcastProcessFunction<St
         }
         
         // Check for KYC completion based on transaction patterns
-        if ("pending".equals(currentKycValue) && count > 10 && totalAmount.compareTo(new BigDecimal("10000")) > 0) {
+        if ("pending".equals(currentKycValue) && count > 10 && totalAmountValue.compareTo(new BigDecimal("10000")) > 0) {
             eventType = "KYC_COMPLETED";
             kycCompleted = true;
             currentKycStatus.update("completed");
@@ -300,7 +251,7 @@ public class CustomerLifecycleProcessor extends KeyedBroadcastProcessFunction<St
             eventType,
             newTier,
             currentKycStatus.value(),
-            currentTime,
+            new Date(),
             count,
             isUpgrade,
             isDowngrade,
@@ -318,58 +269,47 @@ public class CustomerLifecycleProcessor extends KeyedBroadcastProcessFunction<St
         
         return metrics;
     }
-    
-    private String determineTierFromTransactions(BigDecimal totalAmount, Integer count) {
-        if (totalAmount.compareTo(new BigDecimal("100000")) > 0 && count > 100) {
-            return "vip";
-        } else if (totalAmount.compareTo(new BigDecimal("50000")) > 0 && count > 50) {
-            return "premium";
-        } else if (totalAmount.compareTo(new BigDecimal("10000")) > 0 && count > 20) {
-            return "standard";
-        } else {
-            return "basic";
-        }
-    }
 
     private void updateLast20Amounts(EnrichedTransaction enrichedTransaction) throws Exception {
-        // Initialize sum/count if needed
-        if (last20Sum.value() == null) last20Sum.update(BigDecimal.ZERO);
-        if (last20Count.value() == null) last20Count.update(0);
-
-        List<BigDecimal> amounts = new ArrayList<>();
-        for (BigDecimal a : last20TransactionAmounts.get()) {
-            amounts.add(a);
+        // Initialize if needed
+        if (last20TransactionAmounts.value() == null) {
+            last20TransactionAmounts.update(new LinkedList<>());
+        }
+        if (last20Sum.value() == null) {
+            last20Sum.update(BigDecimal.ZERO);
         }
 
+        Queue<BigDecimal> amounts = last20TransactionAmounts.value();
         BigDecimal sum = last20Sum.value();
-        int count = last20Count.value();
+        BigDecimal newAmount = enrichedTransaction.getAmount();
 
-        // If already 20 elements, remove the oldest from sum
+        // If queue is full (20 elements), remove the oldest (FIFO)
         if (amounts.size() >= 20) {
-            BigDecimal oldest = amounts.remove(0);
-            if (oldest != null) {
-                sum = sum.subtract(oldest);
-                count = Math.max(0, count - 1);
+            BigDecimal oldestAmount = amounts.poll(); // Remove oldest
+            if (oldestAmount != null) {
+                sum = sum.subtract(oldestAmount);
             }
         }
 
-        // Add new amount
-        BigDecimal cur = enrichedTransaction.getAmount();
-        amounts.add(cur);
-        sum = sum.add(cur);
-        count = Math.min(20, count + 1);
+        // Add new amount to queue
+        amounts.offer(newAmount); // Add to end
+        sum = sum.add(newAmount);
 
+        // Update states
         last20TransactionAmounts.update(amounts);
         last20Sum.update(sum);
-        last20Count.update(count);
     }
 
     private BigDecimal computeAverageLast20() throws Exception {
-        Integer n = last20Count.value();
-        if (n == null || n == 0) return BigDecimal.ZERO;
+        Queue<BigDecimal> amounts = last20TransactionAmounts.value();
         BigDecimal sum = last20Sum.value();
-        if (sum == null) return BigDecimal.ZERO;
-        return sum.divide(new BigDecimal(n), 2, java.math.RoundingMode.HALF_UP);
+        
+        if (amounts == null || sum == null || amounts.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+        
+        int count = amounts.size();
+        return sum.divide(new BigDecimal(count), 2, java.math.RoundingMode.HALF_UP);
     }
 
     private String determineTierFromAverage(BigDecimal avgAmount) {

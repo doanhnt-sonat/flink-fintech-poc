@@ -146,7 +146,7 @@ public class FintechAnalyticsJob {
         DataStream<TransactionMetrics> customerTransactionMetricsStream = transactionsByCustomer
             .keyBy(Transaction::getCustomerId)
             .window(TumblingProcessingTimeWindows.of(Duration.ofSeconds(30)))
-            .process(new CustomerTransactionMetricsProcessor())
+            .aggregate(new TransactionAggregator(), new CustomerTransactionMetricsProcessor())
             .name("Customer Transaction Metrics Analysis");
         
         // 4. CUSTOMER FRAUD DETECTION PROCESSOR - Transaction + Account data (Fraud Detection)

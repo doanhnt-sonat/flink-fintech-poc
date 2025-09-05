@@ -18,6 +18,7 @@ import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.util.Date;
+import java.util.Map;
 
 /**
  * Merchant Performance Processor - Demonstrates Broadcast State Pattern
@@ -76,7 +77,7 @@ public class MerchantPerformanceProcessor extends KeyedBroadcastProcessFunction<
         // Update analytics state
         Integer currentCount = transactionCount.value();
         BigDecimal currentTotal = totalAmount.value();
-        Date currentTime = new Date();
+        Date currentTime = transaction.getCreatedAt();
         
         if (currentCount == null) currentCount = 0;
         if (currentTotal == null) currentTotal = BigDecimal.ZERO;
@@ -94,6 +95,13 @@ public class MerchantPerformanceProcessor extends KeyedBroadcastProcessFunction<
         String performanceLevel = calculatePerformanceLevel(totalTransactions, totalAmountValue.doubleValue());
         String riskLevel = calculateRiskLevel(merchantId, totalTransactions, totalAmountValue.doubleValue());
         
+        // Extract merchant details for dashboard
+        String merchantName = merchant.getName();
+        String businessType = merchant.getBusinessType();
+        String country = extractCountryFromAddress(merchant.getAddress());
+        String mccCode = merchant.getMccCode();
+        boolean isActive = merchant.isActive();
+        
         // Create and emit metrics
         MerchantAnalyticsMetrics metrics = new MerchantAnalyticsMetrics(
             merchantId,
@@ -101,10 +109,17 @@ public class MerchantPerformanceProcessor extends KeyedBroadcastProcessFunction<
             totalTransactions,
             totalAmountValue.doubleValue(),
             averageAmount.doubleValue(),
-            currentTime,
+            new Date(),
             performanceLevel,
             riskLevel
         );
+        
+        // Set additional merchant details for dashboard
+        metrics.setMerchantName(merchantName);
+        metrics.setBusinessType(businessType);
+        metrics.setCountry(country);
+        metrics.setMccCode(mccCode);
+        metrics.setActive(isActive);
         
         out.collect(metrics);
         
@@ -148,5 +163,22 @@ public class MerchantPerformanceProcessor extends KeyedBroadcastProcessFunction<
         }
     }
     
+    /**
+     * Extract country from merchant address Map
+     * @param address Map containing address fields
+     * @return country string or "UNKNOWN" if not found
+     */
+    private String extractCountryFromAddress(Map<String, Object> address) {
+        if (address == null) {
+            return "UNKNOWN";
+        }
+        
+        Object country = address.get("country");
+        if (country != null) {
+            return country.toString();
+        }
+        
+        return "UNKNOWN";
+    }
 
 }

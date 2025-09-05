@@ -14,8 +14,10 @@ public class MerchantAnalyticsMetrics {
     private Date eventTime;
     private String performanceLevel;
     private String riskLevel;
+    private String merchantName;
     private String businessType;
     private String mccCode;
+    private String country;
     private boolean isActive;
     
     // Constructors
@@ -59,11 +61,17 @@ public class MerchantAnalyticsMetrics {
     public String getRiskLevel() { return riskLevel; }
     public void setRiskLevel(String riskLevel) { this.riskLevel = riskLevel; }
     
+    public String getMerchantName() { return merchantName; }
+    public void setMerchantName(String merchantName) { this.merchantName = merchantName; }
+    
     public String getBusinessType() { return businessType; }
     public void setBusinessType(String businessType) { this.businessType = businessType; }
     
     public String getMccCode() { return mccCode; }
     public void setMccCode(String mccCode) { this.mccCode = mccCode; }
+    
+    public String getCountry() { return country; }
+    public void setCountry(String country) { this.country = country; }
     
     public boolean isActive() { return isActive; }
     public void setActive(boolean active) { isActive = active; }
@@ -72,6 +80,7 @@ public class MerchantAnalyticsMetrics {
     public String toString() {
         return "MerchantAnalyticsMetrics{" +
                 "merchantId='" + merchantId + '\'' +
+                ", merchantName='" + merchantName + '\'' +
                 ", eventType='" + eventType + '\'' +
                 ", transactionCount=" + transactionCount +
                 ", totalAmount=" + totalAmount +
@@ -79,6 +88,8 @@ public class MerchantAnalyticsMetrics {
                 ", eventTime=" + eventTime +
                 ", performanceLevel='" + performanceLevel + '\'' +
                 ", riskLevel='" + riskLevel + '\'' +
+                ", businessType='" + businessType + '\'' +
+                ", country='" + country + '\'' +
                 '}';
     }
 }
