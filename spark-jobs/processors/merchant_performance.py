@@ -7,14 +7,14 @@ class MerchantPerformanceProcessor:
     """Merchant Performance Analysis Processor"""
     
     @staticmethod
-    def process_merchant_performance(transaction_df: DataFrame, merchant_df: DataFrame) -> DataFrame:
+    def process_merchant_performance(transaction_df: DataFrame, merchant_static_df: DataFrame) -> DataFrame:
         """
         Process merchant performance analysis
         """
         # Enrich transactions with merchant data
         enriched_df = transaction_df.join(
-            merchant_df.select("id", "name", "business_type", "category", "location", "status"),
-            transaction_df.merchant_id == merchant_df.id,
+            broadcast(merchant_static_df.select("id", "name", "business_type", "category", "location", "status")),
+            transaction_df.merchant_id == merchant_static_df.id,
             "left"
         )
         

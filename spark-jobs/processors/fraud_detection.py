@@ -7,14 +7,14 @@ class FraudDetectionProcessor:
     """Fraud Detection Processor"""
     
     @staticmethod
-    def detect_fraud_patterns(transaction_df: DataFrame, account_df: DataFrame) -> DataFrame:
+    def detect_fraud_patterns(transaction_df: DataFrame, account_static_df: DataFrame) -> DataFrame:
         """
         Detect fraud patterns in transactions
         """
         # Enrich transactions with account data
         enriched_df = transaction_df.join(
-            account_df.select("id", "customer_id", "account_type", "balance", "daily_limit", "monthly_limit", "risk_score"),
-            transaction_df.from_account_id == account_df.id,
+            broadcast(account_static_df.select("id", "customer_id", "account_type", "balance", "daily_limit", "monthly_limit", "risk_score")),
+            transaction_df.from_account_id == account_static_df.id,
             "left"
         )
         

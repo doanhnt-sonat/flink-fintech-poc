@@ -94,28 +94,25 @@ class FintechAnalyticsJob:
             sources["transactions"], transaction_schema
         )
         
-        # Parse customers
+        # Parse customers/merchants/accounts as STATIC snapshots (batch from Kafka) for broadcast join
         customer_schema = Customer.get_schema()
-        parsed_data["customers"] = KafkaUtils.parse_kafka_message(
-            sources["customers"], customer_schema
-        )
-        
-        # Parse merchants
         merchant_schema = Merchant.get_schema()
-        parsed_data["merchants"] = KafkaUtils.parse_kafka_message(
-            sources["merchants"], merchant_schema
+        account_schema = Account.get_schema()
+
+        parsed_data["customers_static"] = KafkaUtils.read_kafka_batch_snapshot(
+            self.spark, "fintech.public.customers", customer_schema, key_column="id", kafka_servers=self.kafka_servers
         )
-        
-        # Parse customer sessions
+        parsed_data["merchants_static"] = KafkaUtils.read_kafka_batch_snapshot(
+            self.spark, "fintech.public.merchants", merchant_schema, key_column="id", kafka_servers=self.kafka_servers
+        )
+        parsed_data["accounts_static"] = KafkaUtils.read_kafka_batch_snapshot(
+            self.spark, "fintech.public.accounts", account_schema, key_column="id", kafka_servers=self.kafka_servers
+        )
+
+        # Parse customer sessions (STREAM) remain streaming for recent context
         session_schema = CustomerSession.get_schema()
         parsed_data["customer_sessions"] = KafkaUtils.parse_kafka_message(
             sources["customer_sessions"], session_schema
-        )
-        
-        # Parse accounts
-        account_schema = Account.get_schema()
-        parsed_data["accounts"] = KafkaUtils.parse_kafka_message(
-            sources["accounts"], account_schema
         )
         
         return parsed_data
@@ -126,12 +123,12 @@ class FintechAnalyticsJob:
         
         # Get data
         transaction_df = parsed_data["transactions"]
-        customer_df = parsed_data["customers"]
+        customer_static_df = parsed_data["customers_static"]
         session_df = parsed_data["customer_sessions"]
         
         # Process lifecycle metrics
         lifecycle_metrics = CustomerLifecycleProcessor.process_customer_lifecycle(
-            transaction_df, customer_df, session_df
+            transaction_df, customer_static_df, session_df
         )
         
         # Detect lifecycle events
@@ -145,11 +142,11 @@ class FintechAnalyticsJob:
         
         # Get data
         transaction_df = parsed_data["transactions"]
-        merchant_df = parsed_data["merchants"]
+        merchant_static_df = parsed_data["merchants_static"]
         
         # Process merchant performance
         merchant_metrics = MerchantPerformanceProcessor.process_merchant_performance(
-            transaction_df, merchant_df
+            transaction_df, merchant_static_df
         )
         
         # Detect anomalies
@@ -175,10 +172,10 @@ class FintechAnalyticsJob:
         
         # Get data
         transaction_df = parsed_data["transactions"]
-        account_df = parsed_data["accounts"]
+        account_static_df = parsed_data["accounts_static"]
         
         # Detect fraud patterns
-        fraud_results = FraudDetectionProcessor.detect_fraud_patterns(transaction_df, account_df)
+        fraud_results = FraudDetectionProcessor.detect_fraud_patterns(transaction_df, account_static_df)
         
         # Detect velocity anomalies
         velocity_anomalies = FraudDetectionProcessor.detect_velocity_anomalies(transaction_df)
@@ -205,11 +202,11 @@ class FintechAnalyticsJob:
         
         return fraud_combined
     
-    def write_to_kafka(self, df, topic_name):
+    def write_to_kafka(self, df, topic_name, key_column: str | None = "customer_id"):
         """Write DataFrame to Kafka topic"""
         logger.info(f"Writing to Kafka topic: {topic_name}")
         
-        return KafkaUtils.create_kafka_sink(df, topic_name, self.kafka_servers)
+        return KafkaUtils.create_kafka_sink(df, topic_name, self.kafka_servers, key_column)
     
     # Note: No direct ClickHouse sink; ClickHouse ingests from Kafka via Kafka Engine / MVs
     
@@ -245,24 +242,16 @@ class FintechAnalyticsJob:
             logger.info("Writing results to Kafka topics...")
             
             # Customer lifecycle metrics
-            lifecycle_query = self.write_to_kafka(
-                lifecycle_df, "fintech.customer_lifecycle"
-            )
+            lifecycle_query = self.write_to_kafka(lifecycle_df, "fintech.customer_lifecycle", key_column="customer_id")
             
             # Merchant performance metrics
-            merchant_query = self.write_to_kafka(
-                merchant_df, "fintech.merchant_performance"
-            )
+            merchant_query = self.write_to_kafka(merchant_df, "fintech.merchant_performance", key_column="merchant_id")
             
             # Transaction metrics
-            transaction_query = self.write_to_kafka(
-                transaction_metrics_df, "fintech.customer_transaction_metrics"
-            )
+            transaction_query = self.write_to_kafka(transaction_metrics_df, "fintech.customer_transaction_metrics", key_column="customer_id")
             
             # Fraud detection results
-            fraud_query = self.write_to_kafka(
-                fraud_df, "fintech.customer_fraud_alerts"
-            )
+            fraud_query = self.write_to_kafka(fraud_df, "fintech.customer_fraud_alerts", key_column="customer_id")
             
             # Start all streaming queries
             logger.info("Starting streaming queries...")

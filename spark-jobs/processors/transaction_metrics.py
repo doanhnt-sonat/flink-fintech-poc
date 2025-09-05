@@ -10,10 +10,17 @@ class TransactionMetricsProcessor:
     @staticmethod
     def process_transaction_metrics(transaction_df: DataFrame) -> DataFrame:
         """
-        Process transaction metrics for dashboard and analytics
+        Process transaction metrics for dashboard and analytics using
+        processing-time tumbling window of 30 seconds (no watermark)
         """
-        # Calculate transaction metrics by customer
-        customer_metrics = transaction_df.groupBy("customer_id") \
+        # Use processing time by deriving a processing timestamp column
+        df_pt = transaction_df.withColumn("processing_time", current_timestamp())
+
+        # Calculate transaction metrics by customer within 30-second tumbling windows (processing time)
+        windowed = df_pt.groupBy(
+            window(col("processing_time"), "30 seconds"),
+            col("customer_id")
+        ) \
             .agg(
                 count("id").alias("transaction_count"),
                 sum("amount").alias("total_amount"),
@@ -31,6 +38,27 @@ class TransactionMetricsProcessor:
                 sum("fee_amount").alias("total_fees")
             )
         
+        # Flatten window to explicit start/end columns for downstream sinks
+        customer_metrics = windowed.select(
+            col("customer_id"),
+            col("window.start").alias("window_start"),
+            col("window.end").alias("window_end"),
+            "transaction_count",
+            "total_amount",
+            "avg_transaction_amount",
+            "min_transaction_amount",
+            "max_transaction_amount",
+            "unique_merchants",
+            "transaction_types",
+            "completed_transactions",
+            "failed_transactions",
+            "pending_transactions",
+            "avg_risk_score",
+            "first_transaction_date",
+            "last_transaction_date",
+            "total_fees"
+        )
+
         # Calculate additional metrics
         customer_metrics = customer_metrics.withColumn("success_rate", 
                                                      col("completed_transactions") / col("transaction_count")) \

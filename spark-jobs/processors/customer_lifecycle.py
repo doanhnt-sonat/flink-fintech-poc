@@ -2,26 +2,33 @@ from pyspark.sql import DataFrame
 from pyspark.sql.functions import *
 from pyspark.sql.types import *
 from typing import Dict, List
+from .session_processor import SessionProcessor
 
 class CustomerLifecycleProcessor:
     """Customer Lifecycle Analysis Processor"""
     
     @staticmethod
-    def process_customer_lifecycle(transaction_df: DataFrame, customer_df: DataFrame, session_df: DataFrame) -> DataFrame:
+    def process_customer_lifecycle(transaction_df: DataFrame, customer_static_df: DataFrame, session_df: DataFrame) -> DataFrame:
         """
         Process customer lifecycle analysis by enriching transactions with customer and session data
+        Uses 5-minute processing-time window for sessions to avoid unbounded state
         """
+        # Process sessions with 5-minute window to get latest session data per customer
+        windowed_sessions = SessionProcessor.process_sessions_with_window(session_df)
+        
         # Enrich transactions with customer data
         enriched_df = transaction_df.join(
-            customer_df.select("id", "email", "tier", "registration_date", "last_login_date", "total_transactions", "total_amount"),
-            transaction_df.customer_id == customer_df.id,
+            broadcast(customer_static_df.select("id", "email", "tier", "registration_date", "last_login_date", "total_transactions", "total_amount")),
+            transaction_df.customer_id == customer_static_df.id,
             "left"
         )
         
-        # Add session data
+        # Add windowed session data (latest session per customer within 5-minute window)
         enriched_df = enriched_df.join(
-            session_df.select("customer_id", "channel", "device_type", "duration_seconds", "page_views"),
-            transaction_df.customer_id == session_df.customer_id,
+            windowed_sessions.select("customer_id", "channel", "device_type", "duration_seconds", "page_views", 
+                                   "session_count_in_window", "avg_duration_in_window", "avg_page_views_in_window",
+                                   "latest_session_time", "window_start", "window_end"),
+            transaction_df.customer_id == windowed_sessions.customer_id,
             "left"
         )
         
@@ -56,8 +63,13 @@ class CustomerLifecycleProcessor:
                 max("created_at").alias("last_transaction_date"),
                 first("channel").alias("primary_channel"),
                 first("device_type").alias("primary_device"),
-                avg("duration_seconds").alias("avg_session_duration"),
-                avg("page_views").alias("avg_page_views")
+                # Use windowed session metrics instead of raw session data
+                first("avg_duration_in_window").alias("avg_session_duration"),
+                first("avg_page_views_in_window").alias("avg_page_views"),
+                first("session_count_in_window").alias("sessions_in_window"),
+                first("latest_session_time").alias("latest_session_time"),
+                first("window_start").alias("session_window_start"),
+                first("window_end").alias("session_window_end")
             )
         
         return lifecycle_metrics
