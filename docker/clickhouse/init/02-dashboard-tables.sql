@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS merchant_performance_analytics (
     hour UInt8 MATERIALIZED toHour(eventTime)
 ) ENGINE = ReplacingMergeTree(eventTime)
 PARTITION BY date
-ORDER BY (merchantId, eventTime)
+ORDER BY (merchantId)
 SETTINGS index_granularity = 8192;
 
 -- =====================================================
@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS customer_lifecycle_analytics (
     hour UInt8 MATERIALIZED toHour(eventTime)
 ) ENGINE = ReplacingMergeTree(eventTime)
 PARTITION BY date
-ORDER BY (customerId, eventTime)
+ORDER BY (customerId)
 SETTINGS index_granularity = 8192;
 
 -- Customer Transaction Metrics Table
@@ -190,7 +190,7 @@ GROUP BY date, preferredTransactionType;
 -- 1. Fraud & Security Dashboard
 CREATE VIEW IF NOT EXISTS fraud_security_dashboard AS
 SELECT
-    'Today' as period,
+    toString(max(date)) as period,
     count() as totalAlerts,
     uniq(customerId) as affectedCustomers,
     avg(riskScore) as avgRiskScore,
@@ -199,11 +199,12 @@ SELECT
     countIf(severity = 'MEDIUM') as mediumAlerts,
     countIf(severity = 'LOW') as lowAlerts
 FROM fraud_detection_alerts
-WHERE date = today();
+WHERE date = (SELECT max(date) FROM fraud_detection_alerts);
 
 -- 2. Merchant Performance Dashboard
 CREATE VIEW IF NOT EXISTS merchant_performance_dashboard AS
 SELECT
+    toString(max(date)) as period,
     country,
     businessType,
     count() as merchantCount,
@@ -213,13 +214,14 @@ SELECT
     sumIf(transactionCount, performanceLevel = 'HIGH_PERFORMANCE') as highPerformingTransactions,
     sumIf(transactionCount, performanceLevel = 'HIGH_PERFORMANCE') * 100.0 / sum(transactionCount) as performanceRate
 FROM merchant_performance_analytics
-WHERE date = today()
+WHERE date = (SELECT max(date) FROM merchant_performance_analytics)
 GROUP BY country, businessType
 ORDER BY totalRevenue DESC;
 
 -- 3. Customer Analytics Dashboard
 CREATE VIEW IF NOT EXISTS customer_analytics_dashboard AS
 SELECT
+    toString(max(date)) as period,
     currentTier,
     currentKycStatus,
     count() as customerCount,
@@ -230,7 +232,7 @@ SELECT
     sumIf(1, kycCompleted = true) as kycCompletions,
     count() * 100.0 / sum(count()) OVER() as percentage
 FROM customer_lifecycle_analytics
-WHERE date = today()
+WHERE date = (SELECT max(date) FROM customer_lifecycle_analytics)
 GROUP BY currentTier, currentKycStatus
 ORDER BY customerCount DESC;
 

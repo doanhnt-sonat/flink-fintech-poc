@@ -254,7 +254,7 @@ public class CustomerFraudDetectionProcessor extends KeyedBroadcastProcessFuncti
         lastTransactionTime.update(currentTime);
         
         // Create fraud detection result
-        if (!fraudTypes.isEmpty() && riskScore > 50.0) {
+        if (!fraudTypes.isEmpty() && riskScore > 100.0) {
             return new FraudDetectionResult(
                 transaction.getId(),
                 transaction.getCustomerId(),

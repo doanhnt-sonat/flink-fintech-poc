@@ -24,7 +24,7 @@ SELECT
     countIf(severity = 'MEDIUM') as mediumAlerts,
     countIf(severity = 'LOW') as lowAlerts
 FROM fraud_detection_alerts
-WHERE date = today();
+WHERE date = (SELECT max(date) FROM fraud_detection_alerts);
 
 -- 1.2 Fraud Alerts by Severity (Today)
 CREATE VIEW IF NOT EXISTS fraud_alerts_by_severity AS
@@ -36,7 +36,7 @@ SELECT
     uniq(transactionId) as affectedTransactions,
     count() * 100.0 / sum(count()) OVER() as percentage
 FROM fraud_detection_alerts
-WHERE date = today()
+WHERE date = (SELECT max(date) FROM fraud_detection_alerts)
 GROUP BY severity
 ORDER BY alertCount DESC;
 
@@ -49,7 +49,7 @@ SELECT
     uniq(customerId) as affectedCustomers,
     count() * 100.0 / sum(count()) OVER() as percentage
 FROM fraud_detection_alerts
-WHERE date = today()
+WHERE date = (SELECT max(date) FROM fraud_detection_alerts)
 GROUP BY primaryFraudType
 ORDER BY alertCount DESC;
 
@@ -64,7 +64,7 @@ SELECT
     recommendation,
     detectionTime
 FROM fraud_detection_alerts
-WHERE date = today() AND severity IN ('CRITICAL', 'HIGH')
+WHERE date = (SELECT max(date) FROM fraud_detection_alerts) AND severity IN ('CRITICAL', 'HIGH')
 ORDER BY riskScore DESC
 LIMIT 50;
 
@@ -77,7 +77,7 @@ SELECT
     uniq(customerId) as affectedCustomers,
     countIf(severity = 'CRITICAL') as criticalAlerts
 FROM fraud_detection_alerts
-WHERE date >= today() - 1
+WHERE date >= (SELECT addDays(max(date), -1) FROM fraud_detection_alerts)
 GROUP BY hour
 ORDER BY hour;
 
@@ -111,7 +111,7 @@ SELECT
     sumIf(transactionCount, performanceLevel = 'HIGH_PERFORMANCE') as highPerformingTransactions,
     sumIf(transactionCount, performanceLevel = 'HIGH_PERFORMANCE') * 100.0 / sum(transactionCount) as performanceRate
 FROM merchant_performance_analytics
-WHERE date = today();
+WHERE date = (SELECT max(date) FROM merchant_performance_analytics);
 
 -- 2.2 Top Performing Merchants (Today)
 CREATE VIEW IF NOT EXISTS top_performing_merchants AS
@@ -126,7 +126,7 @@ SELECT
     riskLevel,
     mccCode
 FROM merchant_performance_analytics
-WHERE date = today()
+WHERE date = (SELECT max(date) FROM merchant_performance_analytics)
 ORDER BY totalAmount DESC
 LIMIT 20;
 
@@ -141,7 +141,7 @@ SELECT
     sumIf(transactionCount, performanceLevel = 'HIGH_PERFORMANCE') as highPerformingTransactions,
     sumIf(transactionCount, performanceLevel = 'HIGH_PERFORMANCE') * 100.0 / sum(transactionCount) as performanceRate
 FROM merchant_performance_analytics
-WHERE date = today()
+WHERE date = (SELECT max(date) FROM merchant_performance_analytics)
 GROUP BY country
 ORDER BY totalRevenue DESC;
 
@@ -156,7 +156,7 @@ SELECT
     sumIf(transactionCount, performanceLevel = 'HIGH_PERFORMANCE') as highPerformingTransactions,
     sumIf(transactionCount, performanceLevel = 'HIGH_PERFORMANCE') * 100.0 / sum(transactionCount) as performanceRate
 FROM merchant_performance_analytics
-WHERE date = today()
+WHERE date = (SELECT max(date) FROM merchant_performance_analytics)
 GROUP BY businessType
 ORDER BY totalRevenue DESC;
 
@@ -170,7 +170,7 @@ SELECT
     avg(averageAmount) as avgTransactionValue,
     count() * 100.0 / sum(count()) OVER() as percentage
 FROM merchant_performance_analytics
-WHERE date = today()
+WHERE date = (SELECT max(date) FROM merchant_performance_analytics)
 GROUP BY riskLevel
 ORDER BY merchantCount DESC;
 
@@ -184,7 +184,7 @@ SELECT
     sum(transactionCount) as totalTransactions,
     avg(averageAmount) as avgTransactionValue
 FROM merchant_performance_analytics
-WHERE date = today()
+WHERE date = (SELECT max(date) FROM merchant_performance_analytics)
 GROUP BY mccCode, businessType
 ORDER BY totalRevenue DESC
 LIMIT 20;
@@ -204,7 +204,7 @@ SELECT
     sumIf(1, isDowngrade = true) as downgrades,
     sumIf(1, kycCompleted = true) as kycCompletions
 FROM customer_lifecycle_analytics
-WHERE date = today();
+WHERE date = (SELECT max(date) FROM customer_lifecycle_analytics);
 
 -- 3.2 Customer Tier Distribution (Today)
 CREATE VIEW IF NOT EXISTS customer_tier_distribution AS
@@ -217,7 +217,7 @@ SELECT
     sumIf(1, isDowngrade = true) as downgrades,
     count() * 100.0 / sum(count()) OVER() as percentage
 FROM customer_lifecycle_analytics
-WHERE date = today()
+WHERE date = (SELECT max(date) FROM customer_lifecycle_analytics)
 GROUP BY currentTier
 ORDER BY customerCount DESC;
 
@@ -229,7 +229,7 @@ SELECT
     avg(riskScore) as avgRiskScore,
     count() * 100.0 / sum(count()) OVER() as percentage
 FROM customer_lifecycle_analytics
-WHERE date = today()
+WHERE date = (SELECT max(date) FROM customer_lifecycle_analytics)
 GROUP BY currentKycStatus
 ORDER BY customerCount DESC;
 
@@ -243,7 +243,7 @@ SELECT
     avg(riskScore) as avgRiskScore,
     uniq(customerId) as uniqueCustomers
 FROM customer_lifecycle_analytics
-WHERE date = today() AND (isUpgrade = true OR isDowngrade = true)
+WHERE date = (SELECT max(date) FROM customer_lifecycle_analytics) AND (isUpgrade = true OR isDowngrade = true)
 GROUP BY eventType, currentTier, previousTier
 ORDER BY eventCount DESC;
 
@@ -257,7 +257,7 @@ SELECT
     min(riskScore) as minRiskScore,
     max(riskScore) as maxRiskScore
 FROM customer_lifecycle_analytics
-WHERE date = today()
+WHERE date = (SELECT max(date) FROM customer_lifecycle_analytics)
 GROUP BY currentTier, currentKycStatus
 ORDER BY avgRiskScore DESC;
 
@@ -271,7 +271,7 @@ SELECT
     uniq(customerId) as uniqueCustomers,
     avg(riskScore) as avgRiskScore
 FROM customer_transaction_metrics
-WHERE date = today()
+WHERE date = (SELECT max(date) FROM customer_transaction_metrics)
 GROUP BY preferredTransactionType
 ORDER BY transactionCount DESC;
 
@@ -284,7 +284,7 @@ SELECT
     uniq(customerId) as uniqueCustomers,
     avg(riskScore) as avgRiskScore
 FROM customer_transaction_metrics
-WHERE date = today()
+WHERE date = (SELECT max(date) FROM customer_transaction_metrics)
 GROUP BY preferredLocation
 ORDER BY transactionCount DESC
 LIMIT 20;
@@ -298,7 +298,7 @@ SELECT
     uniq(customerId) as uniqueCustomers,
     avg(riskScore) as avgRiskScore
 FROM customer_transaction_metrics
-WHERE date = today()
+WHERE date = (SELECT max(date) FROM customer_transaction_metrics)
 GROUP BY preferredDevice
 ORDER BY transactionCount DESC;
 
@@ -315,7 +315,9 @@ SELECT
     uniq(customerId) as affectedCustomers,
     countIf(severity = 'CRITICAL') as criticalAlerts
 FROM fraud_detection_alerts
-WHERE date = today() AND hour = hour(now());
+WHERE (date, hour) = (
+  SELECT max(tuple(date, hour)) FROM fraud_detection_alerts
+);
 
 -- 4.2 Real-time Merchant Monitoring (Current Hour)
 CREATE VIEW IF NOT EXISTS realtime_merchant_monitoring AS
@@ -326,7 +328,9 @@ SELECT
     sum(transactionCount) as totalTransactions,
     avg(averageAmount) as avgTransactionValue
 FROM merchant_performance_analytics
-WHERE date = today() AND hour = hour(now());
+WHERE (date, hour) = (
+  SELECT max(tuple(date, hour)) FROM merchant_performance_analytics
+);
 
 -- 4.3 Real-time Customer Monitoring (Current Hour)
 CREATE VIEW IF NOT EXISTS realtime_customer_monitoring AS
@@ -336,7 +340,9 @@ SELECT
     avg(riskScore) as avgRiskScore,
     sum(tierChangeCount) as tierChanges
 FROM customer_lifecycle_analytics
-WHERE date = today() AND hour = hour(now());
+WHERE (date, hour) = (
+  SELECT max(tuple(date, hour)) FROM customer_lifecycle_analytics
+);
 
 -- =====================================================
 -- 5. TREND ANALYSIS QUERIES
